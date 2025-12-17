@@ -27,10 +27,9 @@ class ChatAgent(BaseAgent):
         provider = OpenAIProvider(openai_client=openai_client)
         model = OpenAIChatModel(self.config.model, provider=provider)
 
-        self.agent = Agent(
-            model,
-            system_prompt=self.config.extra.get("system_prompt", ""),
-        )
+        # Don't set static system_prompt here - we'll create dynamic system messages
+        # in process() that combine the static prompt with session context
+        self.agent = Agent(model)
         # Only store http_client if we created it ourselves
         if http_client is None:
             self.http_client = client
@@ -184,7 +183,14 @@ class ChatAgent(BaseAgent):
         if user_name_value and is_name_question:
             assistant_output = f"اسم شما {user_name_value} است."
         else:
-            # Otherwise, enrich history with a short context summary (if any)
+            # Build a combined system message that includes:
+            # 1. The static system prompt from config
+            # 2. Dynamic session context (user name, language preference, etc.)
+
+            # Start with the static system prompt
+            static_prompt = self.config.extra.get("system_prompt", "")
+
+            # Build dynamic context information
             context_info: List[str] = []
             if user_name_value:
                 context_info.append(f"نام کاربر: {user_name_value}")
@@ -198,16 +204,24 @@ class ChatAgent(BaseAgent):
                 if lang_value:
                     context_info.append(f"زبان ترجیحی: {lang_value}")
 
+            # Combine static prompt with dynamic context
+            system_parts = []
+            if static_prompt:
+                system_parts.append(static_prompt)
             if context_info:
-                context_message = "اطلاعات سشن:\n" + "\n".join(context_info)
-                # Insert context message at the beginning of history if not already present
+                system_parts.append("اطلاعات سشن فعلی:\n" + "\n".join(context_info))
+
+            # Create the combined system message
+            if system_parts:
+                combined_system_message = "\n\n".join(system_parts)
+                # Insert or update system message at the beginning of history
                 if not message_history or message_history[0].get("role") != "system":
                     message_history.insert(
-                        0, {"role": "system", "content": context_message}
+                        0, {"role": "system", "content": combined_system_message}
                     )
-                elif message_history[0].get("role") == "system":
+                else:
                     # Update existing system message
-                    message_history[0]["content"] = context_message
+                    message_history[0]["content"] = combined_system_message
 
             result = await self.agent.run(
                 request.message,
