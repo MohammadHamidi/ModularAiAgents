@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple Chat Tester</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      direction: rtl;
+    }
+    #chat {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 10px;
+      height: 300px;
+      overflow-y: auto;
+      background: #fafafa;
+      margin-bottom: 10px;
+    }
+    .msg-user { color: #1565c0; margin: 4px 0; }
+    .msg-bot { color: #2e7d32; margin: 4px 0; }
+    label { display: block; margin-top: 8px; }
+    input, textarea, select, button {
+      font-family: inherit;
+      margin-top: 4px;
+    }
+    textarea {
+      width: 100%;
+      height: 60px;
+    }
+    #status {
+      margin-top: 8px;
+      font-size: 0.9rem;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h2>Simple Chat Tester (Gateway → Chat Service)</h2>
+
+  <label>
+    Agent:
+    <select id="agent">
+      <option value="default">default</option>
+      <option value="translator">translator</option>
+    </select>
+  </label>
+
+  <label>
+    Session ID (خالی بگذار برای سشن جدید):
+    <input type="text" id="sessionId" style="width:100%;" />
+  </label>
+
+  <div id="chat"></div>
+
+  <label>
+    پیام:
+    <textarea id="message"></textarea>
+  </label>
+
+  <button id="sendBtn">ارسال</button>
+
+  <div id="status"></div>
+
+  <script>
+    const gatewayBase = "http://localhost:8000"; // Gateway از docker-compose
+    const chatBox = document.getElementById("chat");
+    const agentSelect = document.getElementById("agent");
+    const sessionInput = document.getElementById("sessionId");
+    const messageInput = document.getElementById("message");
+    const sendBtn = document.getElementById("sendBtn");
+    const statusEl = document.getElementById("status");
+
+    function appendMessage(text, cls) {
+      const div = document.createElement("div");
+      div.className = cls;
+      div.textContent = text;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const agent = agentSelect.value;
+      const sessionId = sessionInput.value.trim();
+      const message = messageInput.value.trim();
+      if (!message) return;
+
+      appendMessage("شما: " + message, "msg-user");
+      messageInput.value = "";
+      statusEl.textContent = "در حال ارسال...";
+
+      const payload = {
+        message: message,
+        use_shared_context: true
+      };
+      if (sessionId) {
+        payload.session_id = sessionId;
+      }
+
+      try {
+        const res = await fetch(`${gatewayBase}/chat/${agent}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          statusEl.textContent = "خطا: " + res.status + " " + errText;
+          appendMessage("خطا: " + errText, "msg-bot");
+          return;
+        }
+
+        const data = await res.json();
+        // ذخیره/به‌روزرسانی session_id
+        if (data.session_id) {
+          sessionInput.value = data.session_id;
+        }
+
+        appendMessage("بات: " + (data.output || "[no output]"), "msg-bot");
+        statusEl.textContent = "OK";
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = "خطا در اتصال به gateway: " + e.message;
+        appendMessage("خطای شبکه: " + e.message, "msg-bot");
+      }
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+    messageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>

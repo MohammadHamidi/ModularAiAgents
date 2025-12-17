@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ai_platform
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  gateway:
+    build:
+      context: .
+      dockerfile: ./services/gateway/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - chat-service
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: ./services/chat-service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:pass@postgres/ai_platform
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - postgres
