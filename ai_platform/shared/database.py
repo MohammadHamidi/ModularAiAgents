@@ -4,28 +4,6 @@ from datetime import datetime, timezone
 from sqlalchemy import text, bindparam
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.dialects.postgresql import JSONB
-from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
-
-
-def dump_messages(messages: list[ModelMessage]) -> list[dict]:
-    """
-    Serialize a list of ModelMessage objects to plain JSON-serializable dicts
-    suitable for storing in a JSONB column.
-    """
-    if not messages:
-        return []
-    # Use pydantic-ai's adapter to produce standard Python data structures
-    return ModelMessagesTypeAdapter.dump_python(messages)
-
-
-def load_messages(raw_messages) -> list[ModelMessage]:
-    """
-    Deserialize JSON/JSONB data from the DB into a list[ModelMessage].
-    Accepts either a list of dicts or a JSON-serializable structure.
-    """
-    if not raw_messages:
-        return []
-    return ModelMessagesTypeAdapter.validate_python(raw_messages)
 
 
 class SessionManager:
@@ -42,12 +20,8 @@ class SessionManager:
             )).fetchone()
             if not row:
                 return None
-
-            raw_messages = row[0]
-            messages = load_messages(raw_messages)
-
             return {
-                "messages": messages,
+                "messages": row[0],
                 "agent_type": row[1],
                 "metadata": row[2] or {},
             }
@@ -83,15 +57,12 @@ class SessionManager:
         if isinstance(trimmed_messages, list) and len(trimmed_messages) > max_msgs:
             trimmed_messages = trimmed_messages[-max_msgs:]
 
-        # Serialize messages into JSON-serializable format for JSONB storage
-        serialized_messages = dump_messages(trimmed_messages)
-
         async with self.engine.begin() as conn:
             await conn.execute(
                 stmt,
                 {
                     "sid": session_id,
-                    "msgs": serialized_messages,
+                    "msgs": trimmed_messages,
                     "agent_type": agent_type,
                     "meta": metadata or {},
                     "now": now,
