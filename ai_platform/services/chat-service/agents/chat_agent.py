@@ -147,10 +147,73 @@ class ChatAgent(BaseAgent):
         # Extract structured signals from latest user message
         context_updates, prefs_updates = self._extract_user_signals(request.message)
 
-        result = await self.agent.run(
-            request.message,
-            message_history=message_history,
+        # Build context-aware view by merging existing context
+        merged_context: Dict[str, Any] = {}
+        if shared_context:
+            merged_context.update(shared_context)
+        merged_context.update(context_updates)
+        merged_context.update(prefs_updates)
+
+        # Helper: extract plain user_name from merged context (if any)
+        def _extract_name_from_context(ctx: Dict[str, Any]) -> Optional[str]:
+            if "user_name" not in ctx:
+                return None
+            raw = ctx["user_name"]
+            if isinstance(raw, dict):
+                return (raw.get("value") or "").strip() or None
+            return str(raw).strip() or None
+
+        user_name_value = _extract_name_from_context(merged_context)
+
+        # Helper: detect "what is my name / who am I" style questions
+        lowered = request.message.strip().lower()
+        is_name_question = any(
+            phrase in lowered
+            for phrase in [
+                "اسم من چیه",
+                "اسم من چیست",
+                "من کی هستم",
+                "what is my name",
+                "who am i",
+            ]
         )
+
+        # If we already know the user's name in session context and the user
+        # explicitly asks for it, answer deterministically from context instead
+        # of delegating to the LLM (to avoid hallucination / forgetting).
+        if user_name_value and is_name_question:
+            assistant_output = f"اسم شما {user_name_value} است."
+        else:
+            # Otherwise, enrich history with a short context summary (if any)
+            context_info: List[str] = []
+            if user_name_value:
+                context_info.append(f"نام کاربر: {user_name_value}")
+
+            preferred_lang = merged_context.get("preferred_language")
+            if preferred_lang:
+                if isinstance(preferred_lang, dict):
+                    lang_value = (preferred_lang.get("value") or "").strip()
+                else:
+                    lang_value = str(preferred_lang).strip()
+                if lang_value:
+                    context_info.append(f"زبان ترجیحی: {lang_value}")
+
+            if context_info:
+                context_message = "اطلاعات سشن:\n" + "\n".join(context_info)
+                # Insert context message at the beginning of history if not already present
+                if not message_history or message_history[0].get("role") != "system":
+                    message_history.insert(
+                        0, {"role": "system", "content": context_message}
+                    )
+                elif message_history[0].get("role") == "system":
+                    # Update existing system message
+                    message_history[0]["content"] = context_message
+
+            result = await self.agent.run(
+                request.message,
+                message_history=message_history,
+            )
+            assistant_output = result.output
 
         # Append latest turn to history so caller can persist it
         updated_history: List[Dict[str, Any]] = history.copy() if history else []
@@ -165,7 +228,7 @@ class ChatAgent(BaseAgent):
         updated_history.append(
             {
                 "role": "assistant",
-                "content": result.output,
+                "content": assistant_output,
                 "timestamp": now_iso,
             }
         )
@@ -186,7 +249,7 @@ class ChatAgent(BaseAgent):
 
         return AgentResponse(
             session_id=request.session_id,
-            output=result.output,
+            output=assistant_output,
             metadata=metadata,
             context_updates=context_updates_combined,
         )
