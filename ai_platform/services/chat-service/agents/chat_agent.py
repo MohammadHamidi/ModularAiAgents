@@ -231,6 +231,11 @@ class ChatAgent(BaseAgent):
                 pass
 
         # ==================== INTERESTS/HOBBIES EXTRACTION ====================
+        # NOTE: Interests need to be accumulated, but we can't access shared_context here
+        # We'll handle merging in the process() method after we have merged_context
+        # For now, just extract new interests as a simple list
+        extracted_interests = []
+
         # Persian: "من به فوتبال علاقه دارم" / "دوست دارم کتاب بخونم"
         if "علاقه دارم" in text or "دوست دارم" in text:
             try:
@@ -240,12 +245,7 @@ class ChatAgent(BaseAgent):
                 if before and "به" in before:
                     interest = before.split("به", 1)[1].strip()
                     if interest:
-                        # Get existing interests or create new list
-                        existing = context_updates.get("user_interests", {"value": []})
-                        interests_list = existing.get("value", []) if isinstance(existing, dict) else []
-                        if interest not in interests_list:
-                            interests_list.append(interest)
-                        context_updates["user_interests"] = {"value": interests_list}
+                        extracted_interests.append(interest)
             except Exception:
                 pass
 
@@ -264,13 +264,13 @@ class ChatAgent(BaseAgent):
                     after = lowered.split(separator, 1)[1].strip()
                     interest = after.split()[0].strip(".,!?") if after else None
                     if interest and interest not in ["a", "an", "the", "to"]:
-                        existing = context_updates.get("user_interests", {"value": []})
-                        interests_list = existing.get("value", []) if isinstance(existing, dict) else []
-                        if interest not in interests_list:
-                            interests_list.append(interest)
-                        context_updates["user_interests"] = {"value": interests_list}
+                        extracted_interests.append(interest)
             except Exception:
                 pass
+
+        # Store extracted interests (will be merged with existing interests in process())
+        if extracted_interests:
+            context_updates["_new_interests"] = {"value": extracted_interests}
 
         # ==================== LANGUAGE PREFERENCE ====================
         # Preferred language (very simple signals)
@@ -279,7 +279,7 @@ class ChatAgent(BaseAgent):
 
         if "speak english" in lowered or "talk to me in english" in lowered:
             context_updates["preferred_language"] = {"value": "en"}
-        
+
         # Arabic language preference
         if "عربی" in text or "عربي" in text or "arabic" in lowered:
             # Check if it's a request to speak Arabic (not just mentioning the word)
@@ -290,10 +290,7 @@ class ChatAgent(BaseAgent):
             ]):
                 context_updates["preferred_language"] = {"value": "ar"}
 
-        if context_updates:
-            prefs_updates["user_prefs"] = context_updates
-
-        return context_updates, prefs_updates
+        return context_updates, {}
 
     async def process(
         self,
@@ -305,14 +302,31 @@ class ChatAgent(BaseAgent):
         message_history = self._convert_history(history)
 
         # Extract structured signals from latest user message
-        context_updates, prefs_updates = self._extract_user_signals(request.message)
+        context_updates, _ = self._extract_user_signals(request.message)
+
+        # Handle interests accumulation - merge new interests with existing ones
+        if "_new_interests" in context_updates:
+            new_interests = context_updates["_new_interests"].get("value", [])
+            # Get existing interests from shared_context
+            existing_interests_data = (shared_context or {}).get("user_interests", {"value": []})
+            existing_interests = existing_interests_data.get("value", []) if isinstance(existing_interests_data, dict) else []
+
+            # Merge new interests with existing ones (avoid duplicates)
+            all_interests = list(existing_interests) if isinstance(existing_interests, list) else []
+            for interest in new_interests:
+                if interest not in all_interests:
+                    all_interests.append(interest)
+
+            # Replace _new_interests with the complete user_interests
+            del context_updates["_new_interests"]
+            if all_interests:
+                context_updates["user_interests"] = {"value": all_interests}
 
         # Build context-aware view by merging existing context
         merged_context: Dict[str, Any] = {}
         if shared_context:
             merged_context.update(shared_context)
         merged_context.update(context_updates)
-        merged_context.update(prefs_updates)
 
         # Helper: extract plain user_name from merged context (if any)
         def _extract_name_from_context(ctx: Dict[str, Any]) -> Optional[str]:
@@ -452,13 +466,12 @@ class ChatAgent(BaseAgent):
             "history": updated_history,
         }
 
+        # Build final context updates by merging shared_context with new updates
         context_updates_combined: Dict[str, Any] = {}
         if shared_context:
             context_updates_combined.update(shared_context)
-        # context_updates are fine-grained keys like user_name, preferred_language
+        # Add new/updated context (user_name, user_age, user_interests, etc.)
         context_updates_combined.update(context_updates)
-        # prefs_updates can be a higher-level aggregation under user_prefs
-        context_updates_combined.update(prefs_updates)
 
         return AgentResponse(
             session_id=request.session_id,
