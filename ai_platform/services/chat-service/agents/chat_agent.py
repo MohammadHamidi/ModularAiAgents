@@ -1,4 +1,5 @@
 import datetime
+import re
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
@@ -10,6 +11,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
 from agents.litellm_compat import create_litellm_compatible_client
+from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
 
 
 @dataclass
@@ -18,10 +20,24 @@ class ChatDependencies:
     session_id: str
     user_info: Dict[str, Any]  # Current user information from shared_context
     pending_updates: Dict[str, Any]  # Will be populated by tools
+    agent_config: FullAgentConfig  # Full agent configuration
 
 
 class ChatAgent(BaseAgent):
     """Chat agent with AI-powered tool for extracting user information."""
+
+    def __init__(self, base_config: AgentConfig, context_manager, agent_config: FullAgentConfig):
+        """
+        Initialize chat agent with full configuration.
+
+        Args:
+            base_config: Base agent config (for compatibility)
+            context_manager: Context manager for storing data
+            agent_config: Full agent configuration from YAML
+        """
+        super().__init__(base_config, context_manager)
+        self.agent_config = agent_config
+        self.field_map = agent_config.build_field_map()
 
     async def initialize(self, http_client: httpx.AsyncClient | None = None):
         # Use provided http_client or create a new one
@@ -51,77 +67,107 @@ class ChatAgent(BaseAgent):
         ) -> str:
             """Save or update user information from the conversation.
 
-            Use this tool to silently extract and save user details like name, age,
-            location, occupation, interests, or any other personal information mentioned.
+            Use this tool to silently extract and save user details from the conversation.
 
             IMPORTANT: Never mention to the user that you're saving this information.
             Just use this tool in the background and continue the conversation naturally.
 
             Args:
-                field_name: The type of information (e.g., "name", "age", "location",
-                           "occupation", "interest", "language_preference", etc.)
-                field_value: The actual value to save (e.g., "Mohammad", "25", "Tehran")
+                field_name: The type of information (check config for allowed fields)
+                field_value: The actual value to save
 
             Returns:
                 Confirmation message (internal use only, don't show to user)
             """
-            # Normalize field names
-            field_map = {
-                "name": "user_name",
-                "age": "user_age",
-                "location": "user_location",
-                "city": "user_location",
-                "occupation": "user_occupation",
-                "job": "user_occupation",
-                "interest": "user_interests",
-                "hobby": "user_interests",
-                "language": "preferred_language",
-                "language_preference": "preferred_language",
-            }
-
-            normalized_field = field_map.get(field_name.lower(), f"user_{field_name.lower()}")
-
-            # Handle interests specially (accumulate as list)
-            if normalized_field == "user_interests":
-                # Get existing interests
-                existing = ctx.deps.user_info.get("user_interests", {"value": []})
-                interests_list = existing.get("value", []) if isinstance(existing, dict) else []
-                if not isinstance(interests_list, list):
-                    interests_list = []
-
-                # Add new interest if not already present
-                if field_value not in interests_list:
-                    interests_list.append(field_value)
-                    ctx.deps.pending_updates[normalized_field] = {"value": interests_list}
-                    return f"Added '{field_value}' to interests list"
-                else:
-                    return f"Interest '{field_value}' already saved"
-
-            # Handle age specially (convert to int)
-            elif normalized_field == "user_age":
-                try:
-                    # Convert Persian/Arabic digits to English
-                    persian_to_english = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
-                    age_str = field_value.translate(persian_to_english)
-                    age = int(''.join(filter(str.isdigit, age_str)))
-                    if 1 <= age <= 120:
-                        ctx.deps.pending_updates[normalized_field] = {"value": age}
-                        return f"Saved age: {age}"
-                    else:
-                        return f"Invalid age: {age}"
-                except (ValueError, TypeError):
-                    return f"Could not parse age from: {field_value}"
-
-            # Handle all other fields
-            else:
-                ctx.deps.pending_updates[normalized_field] = {"value": field_value}
-                return f"Saved {normalized_field}: {field_value}"
+            return await self._handle_save_user_info(ctx, field_name, field_value)
 
         # Only store http_client if we created it ourselves
         if http_client is None:
             self.http_client = client
         else:
             self.http_client = None
+
+    async def _handle_save_user_info(
+        self,
+        ctx: RunContext[ChatDependencies],
+        field_name: str,
+        field_value: str
+    ) -> str:
+        """Handle save_user_info tool call using configuration."""
+        # Get field config
+        field_config = ctx.deps.agent_config.get_field_by_name(field_name)
+
+        if not field_config:
+            # Field not in config, try field_map as fallback
+            normalized_field = self.field_map.get(field_name.lower())
+            if not normalized_field:
+                return f"Unknown field: {field_name}"
+            # Create a basic field config
+            field_config = UserDataField(
+                field_name=field_name,
+                normalized_name=normalized_field,
+                description="",
+                data_type="string",
+                enabled=True
+            )
+
+        if not field_config.enabled:
+            return f"Field '{field_name}' is disabled in configuration"
+
+        normalized_field = field_config.normalized_name
+
+        # Handle based on data type
+        if field_config.data_type == "list" or field_config.accumulate:
+            # Handle list fields (interests, subjects, etc.)
+            existing = ctx.deps.user_info.get(normalized_field, {"value": []})
+            items_list = existing.get("value", []) if isinstance(existing, dict) else []
+            if not isinstance(items_list, list):
+                items_list = []
+
+            # Add new item if not already present
+            if field_value not in items_list:
+                items_list.append(field_value)
+                ctx.deps.pending_updates[normalized_field] = {"value": items_list}
+                return f"Added '{field_value}' to {normalized_field}"
+            else:
+                return f"'{field_value}' already in {normalized_field}"
+
+        elif field_config.data_type == "integer":
+            # Handle integer fields (age, grade, etc.)
+            try:
+                # Convert Persian/Arabic digits to English
+                persian_to_english = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
+                value_str = field_value.translate(persian_to_english)
+                value_int = int(''.join(filter(str.isdigit, value_str)))
+
+                # Validate if validation rules exist
+                if 'min' in field_config.validation:
+                    if value_int < field_config.validation['min']:
+                        return f"Value {value_int} below minimum {field_config.validation['min']}"
+                if 'max' in field_config.validation:
+                    if value_int > field_config.validation['max']:
+                        return f"Value {value_int} above maximum {field_config.validation['max']}"
+
+                ctx.deps.pending_updates[normalized_field] = {"value": value_int}
+                return f"Saved {normalized_field}: {value_int}"
+            except (ValueError, TypeError):
+                return f"Could not parse integer from: {field_value}"
+
+        else:
+            # Handle string fields (name, location, occupation, etc.)
+            # Validate pattern if specified
+            if 'pattern' in field_config.validation:
+                pattern = field_config.validation['pattern']
+                if not re.match(pattern, field_value):
+                    return f"Value '{field_value}' doesn't match required pattern"
+
+            # Validate allowed values if specified
+            if 'allowed_values' in field_config.validation:
+                if field_value not in field_config.validation['allowed_values']:
+                    return f"Value '{field_value}' not in allowed values: {field_config.validation['allowed_values']}"
+
+            ctx.deps.pending_updates[normalized_field] = {"value": field_value}
+            return f"Saved {normalized_field}: {field_value}"
 
     def _convert_history(
         self, history: Optional[List[Dict[str, Any]]]
@@ -141,70 +187,68 @@ class ChatAgent(BaseAgent):
 
     def _build_dynamic_system_prompt(
         self,
-        static_prompt: str,
         user_info: Dict[str, Any],
-        last_two_messages: List[Dict[str, Any]]
+        last_user_messages: List[Dict[str, Any]]
     ) -> str:
-        """Build a context-aware system prompt."""
+        """Build a context-aware system prompt using configuration."""
         parts = []
 
-        # Add static prompt
-        if static_prompt:
-            parts.append(static_prompt)
+        # Add complete system prompt from config
+        complete_prompt = self.agent_config.get_complete_system_prompt()
+        if complete_prompt:
+            parts.append(complete_prompt)
 
-        # Add user information context
-        if user_info:
-            context_lines = ["📋 اطلاعات کاربر (User Information):"]
+        # Add user information context if enabled
+        context_config = self.agent_config.context_display
+        if context_config.get('enabled', True) and user_info:
+            context_lines = [context_config.get('header', '📋 User Information:')]
 
-            # Name
-            if "user_name" in user_info:
-                name = user_info["user_name"].get("value") if isinstance(user_info["user_name"], dict) else user_info["user_name"]
-                if name:
-                    context_lines.append(f"  • نام (Name): {name}")
+            field_labels = context_config.get('field_labels', {})
+            language_names = context_config.get('language_names', {})
 
-            # Age
-            if "user_age" in user_info:
-                age = user_info["user_age"].get("value") if isinstance(user_info["user_age"], dict) else user_info["user_age"]
-                if age:
-                    context_lines.append(f"  • سن (Age): {age}")
+            # Display each field that has a value
+            for field_config in self.agent_config.user_data_fields:
+                normalized_name = field_config.normalized_name
+                if normalized_name not in user_info:
+                    continue
 
-            # Location
-            if "user_location" in user_info:
-                location = user_info["user_location"].get("value") if isinstance(user_info["user_location"], dict) else user_info["user_location"]
-                if location:
-                    context_lines.append(f"  • موقعیت (Location): {location}")
+                value_data = user_info[normalized_name]
+                value = value_data.get("value") if isinstance(value_data, dict) else value_data
 
-            # Occupation
-            if "user_occupation" in user_info:
-                occupation = user_info["user_occupation"].get("value") if isinstance(user_info["user_occupation"], dict) else user_info["user_occupation"]
-                if occupation:
-                    context_lines.append(f"  • شغل (Occupation): {occupation}")
+                if not value:
+                    continue
 
-            # Interests
-            if "user_interests" in user_info:
-                interests = user_info["user_interests"].get("value") if isinstance(user_info["user_interests"], dict) else user_info["user_interests"]
-                if interests and isinstance(interests, list) and len(interests) > 0:
-                    interests_str = "، ".join(str(i) for i in interests)
-                    context_lines.append(f"  • علایق (Interests): {interests_str}")
+                # Get display label
+                label = field_labels.get(normalized_name, normalized_name)
 
-            # Preferred Language
-            if "preferred_language" in user_info:
-                lang = user_info["preferred_language"].get("value") if isinstance(user_info["preferred_language"], dict) else user_info["preferred_language"]
-                if lang:
-                    lang_name = {"fa": "فارسی", "en": "English", "ar": "عربی"}.get(lang, lang)
-                    context_lines.append(f"  • زبان ترجیحی (Preferred Language): {lang_name}")
+                # Format value
+                if isinstance(value, list):
+                    if len(value) > 0:
+                        value_str = "، ".join(str(v) for v in value)
+                        context_lines.append(f"  • {label}: {value_str}")
+                elif normalized_name == "preferred_language" and value in language_names:
+                    lang_display = language_names.get(value, value)
+                    context_lines.append(f"  • {label}: {lang_display}")
+                else:
+                    context_lines.append(f"  • {label}: {value}")
 
-            if len(context_lines) > 1:  # More than just the header
+            if len(context_lines) > 1:  # More than just header
                 parts.append("\n".join(context_lines))
 
-        # Add last 2 messages context
-        if last_two_messages and len(last_two_messages) > 0:
-            context_lines = ["💬 آخرین پیام‌های کاربر (Last User Messages):"]
-            for i, msg in enumerate(last_two_messages[-2:], 1):
-                content = msg.get("content", "")[:150]  # Truncate long messages
-                if len(msg.get("content", "")) > 150:
+        # Add recent messages context if enabled
+        recent_config = self.agent_config.recent_messages_context
+        if recent_config.get('enabled', True) and last_user_messages:
+            count = recent_config.get('count', 2)
+            max_length = recent_config.get('max_length', 150)
+            header = recent_config.get('header', '💬 Recent Messages:')
+
+            context_lines = [header]
+            for i, msg in enumerate(last_user_messages[-count:], 1):
+                content = msg.get("content", "")[:max_length]
+                if len(msg.get("content", "")) > max_length:
                     content += "..."
                 context_lines.append(f"  {i}. {content}")
+
             parts.append("\n".join(context_lines))
 
         return "\n\n".join(parts)
@@ -218,15 +262,15 @@ class ChatAgent(BaseAgent):
         # Convert persisted history into pydantic_ai format
         message_history = self._convert_history(history)
 
-        # Get last 2 user messages for context
+        # Get last N user messages for context
+        recent_config = self.agent_config.recent_messages_context
+        count = recent_config.get('count', 2)
         last_user_messages = [
-            msg for msg in (history or [])[-6:] if msg.get("role") == "user"
-        ][-2:]
+            msg for msg in (history or [])[-count*3:] if msg.get("role") == "user"
+        ][-count:]
 
         # Build dynamic system prompt with user context
-        static_prompt = self.config.extra.get("system_prompt", "")
         dynamic_system_prompt = self._build_dynamic_system_prompt(
-            static_prompt,
             shared_context or {},
             last_user_messages
         )
@@ -244,6 +288,7 @@ class ChatAgent(BaseAgent):
             session_id=request.session_id or "",
             user_info=shared_context or {},
             pending_updates=pending_updates,
+            agent_config=self.agent_config,
         )
 
         # Run the agent with tool support
@@ -289,4 +334,4 @@ class ChatAgent(BaseAgent):
         )
 
     def get_capabilities(self) -> list[str]:
-        return ["chat", "conversation", "qa", "user_context_extraction"]
+        return ["chat", "conversation", "qa", "user_context_extraction", "configurable"]

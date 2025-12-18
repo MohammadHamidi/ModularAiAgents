@@ -15,6 +15,7 @@ from shared.base_agent import AgentRequest, AgentConfig
 from agents.chat_agent import ChatAgent
 from agents.translator_agent import TranslatorAgent
 from agents.litellm_compat import rewrite_service_tier
+from agents.config_loader import load_agent_config
 
 load_dotenv()
 
@@ -58,10 +59,13 @@ session_manager = None
 context_manager = None
 http_client: httpx.AsyncClient | None = None
 
-def register_agent(key: str, agent_class, config: dict):
+def register_agent(key: str, agent_class, config: dict, full_config=None):
     """Register agent with configuration"""
     agent_config = AgentConfig(**config)
-    agent = agent_class(agent_config, context_manager)
+    if full_config and agent_class == ChatAgent:
+        agent = agent_class(agent_config, context_manager, full_config)
+    else:
+        agent = agent_class(agent_config, context_manager)
     AGENTS[key] = agent
     return agent
 
@@ -78,52 +82,41 @@ async def startup():
     
     # Create global httpx client with LiteLLM compatibility hook
     http_client = httpx.AsyncClient(event_hooks={"response": [rewrite_service_tier]})
-    
-    # System-level guidance for default chat agent with AI-powered context extraction
-    memory_aware_system_prompt = (
-        "تو یک چت‌بات مفید، دقیق و با حافظه هستی. پاسخ‌ها کوتاه و واضح باشند.\n\n"
-        "🧠 حافظه هوشمند (Smart Memory):\n"
-        "- تو به ابزار save_user_info دسترسی داری که به صورت خودکار اطلاعات کاربر را ذخیره می‌کند\n"
-        "- هر وقت کاربر اطلاعاتی درباره خودش می‌گوید (نام، سن، موقعیت، شغل، علاقه، زبان و غیره)، "
-        "بلافاصله با استفاده از save_user_info آن را ذخیره کن\n"
-        "- ⚠️ مهم: هرگز به کاربر نگو که اطلاعاتش را ذخیره کردی! این کار در پس‌زمینه انجام می‌شود\n"
-        "- فقط طبیعی با کاربر صحبت کن و به سوالاتش پاسخ بده\n"
-        "- مثال غلط: «باشه! اسمت رو ذخیره کردم» ❌\n"
-        "- مثال صحیح: «سلام محمد! چطور می‌تونم کمکت کنم؟» ✅\n\n"
-        "📋 استفاده از کانتکست:\n"
-        "- اطلاعات ذخیره‌شده کاربر در بالای این پیام به تو نشان داده می‌شود\n"
-        "- همیشه از این اطلاعات برای پاسخ‌های شخصی‌تر استفاده کن\n"
-        "- اگر کاربر بپرسد «اسم من چیه؟» یا «من کی هستم؟»، از اطلاعات ذخیره‌شده استفاده کن\n"
-        "- آخرین ۲ پیام کاربر هم برای درک بهتر سیاق گفتگو در اختیار داری\n\n"
-        "🔧 نحوه استفاده از ابزار save_user_info:\n"
-        "- برای نام: save_user_info(field_name='name', field_value='محمد')\n"
-        "- برای سن: save_user_info(field_name='age', field_value='25')\n"
-        "- برای شهر: save_user_info(field_name='location', field_value='تهران')\n"
-        "- برای شغل: save_user_info(field_name='occupation', field_value='برنامه‌نویس')\n"
-        "- برای علاقه: save_user_info(field_name='interest', field_value='فوتبال')\n"
-        "- برای زبان: save_user_info(field_name='language_preference', field_value='fa')\n"
-        "- می‌تونی چندین اطلاعات را در یک پیام ذخیره کنی\n\n"
-        "🌐 زبان:\n"
-        "- اگر 'زبان ترجیحی' ست شده است، پاسخ‌ها را در همان زبان بده\n"
-        "- در غیر این صورت، با همان زبان کاربر پاسخ بده\n\n"
-        "یادت باشه: استفاده از save_user_info باید کاملاً نامحسوس باشه! کاربر نباید متوجه بشه."
-    )
+
+    # Load agent configuration from YAML
+    # Can be customized via AGENT_CONFIG_FILE environment variable
+    config_file = os.getenv("AGENT_CONFIG_FILE", "agent_config.yaml")
+    try:
+        agent_full_config = load_agent_config(config_file)
+        logging.info(f"Loaded agent config: {agent_full_config.agent_name} v{agent_full_config.agent_version}")
+    except Exception as e:
+        logging.error(f"Failed to load agent config from {config_file}: {e}")
+        logging.info("Falling back to default config")
+        agent_full_config = load_agent_config("agent_config.yaml")
 
     # Register agents
     base_config = {
         "api_key": os.getenv("LITELLM_API_KEY"),
         "base_url": os.getenv("LITELLM_BASE_URL", "https://api.avalai.ir/v1")
     }
-    
+
+    # Get model config from loaded configuration or environment
+    model_config = agent_full_config.model_config
+    default_model = model_config.get("default_model", "gemini-2.5-flash-lite-preview-09-2025")
+    temperature = model_config.get("temperature", 0.7)
+    max_turns = model_config.get("max_turns", 12)
+
+    # Register default agent with full configuration
     register_agent("default", ChatAgent, {
-        "name": "Default Chat",
-        "model": os.getenv("LITELLM_MODEL", "gemini-2.5-flash-lite-preview-09-2025"),
-        "max_turns": 12,
+        "name": agent_full_config.agent_name,
+        "model": os.getenv("LITELLM_MODEL", default_model),
+        "max_turns": max_turns,
+        "temperature": temperature,
         "extra": {
             **base_config,
-            "system_prompt": memory_aware_system_prompt
+            "system_prompt": agent_full_config.get_complete_system_prompt()
         }
-    })
+    }, full_config=agent_full_config)
     
     register_agent("translator", TranslatorAgent, {
         "name": "Translator",
