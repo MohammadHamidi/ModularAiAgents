@@ -92,6 +92,7 @@ class ChatAgent(BaseAgent):
 
         if "اسم من" in text or "نام من" in text:
             # e.g. "اسم من محمد است" or "نام من محمد است"
+            # BUT NOT "اسم من چیه" (which is a question, not a statement)
             try:
                 separator = "اسم من" if "اسم من" in text else "نام من"
                 after_esme = text.split(separator, 1)[1].strip()
@@ -102,7 +103,9 @@ class ChatAgent(BaseAgent):
                     .replace("هستش", "")
                     .strip()
                 )
-                if after_esme:
+                # Exclude question words - these indicate the user is ASKING for their name, not stating it
+                question_words = ["چیه", "چیست", "چیه؟", "چیست؟", "چیه", "چی", "چی؟"]
+                if after_esme and after_esme not in question_words:
                     context_updates["user_name"] = {"value": after_esme}
             except Exception:
                 pass
@@ -276,6 +279,16 @@ class ChatAgent(BaseAgent):
 
         if "speak english" in lowered or "talk to me in english" in lowered:
             context_updates["preferred_language"] = {"value": "en"}
+        
+        # Arabic language preference
+        if "عربی" in text or "عربي" in text or "arabic" in lowered:
+            # Check if it's a request to speak Arabic (not just mentioning the word)
+            if any(phrase in text for phrase in [
+                "به عربی", "به عربي", "عربی جواب", "عربي جواب",
+                "از این به بعد به عربی", "از این به بعد به عربي",
+                "speak arabic", "answer in arabic", "reply in arabic"
+            ]):
+                context_updates["preferred_language"] = {"value": "ar"}
 
         if context_updates:
             prefs_updates["user_prefs"] = context_updates
@@ -312,125 +325,108 @@ class ChatAgent(BaseAgent):
 
         user_name_value = _extract_name_from_context(merged_context)
 
-        # Helper: detect "what is my name / who am I" style questions
-        lowered = request.message.strip().lower()
-        is_name_question = any(
-            phrase in lowered
-            for phrase in [
-                "اسم من چیه",
-                "اسم من چیست",
-                "من کی هستم",
-                "what is my name",
-                "who am i",
-            ]
+        # Build a combined system message that includes:
+        # 1. The static system prompt from config
+        # 2. Dynamic session context (user name, age, location, occupation, interests, language, etc.)
+        # 3. Summary of the last 1-2 conversation turns
+        # Trust the LLM to use this context appropriately - it has a large context window!
+
+        # Start with the static system prompt
+        static_prompt = self.config.extra.get("system_prompt", "")
+
+        # Build dynamic context information from all available user data
+        context_info: List[str] = []
+
+        # Extract all user context fields
+        if user_name_value:
+            context_info.append(f"نام کاربر: {user_name_value}")
+
+        # Age
+        user_age = merged_context.get("user_age")
+        if user_age:
+            age_value = user_age.get("value") if isinstance(user_age, dict) else user_age
+            if age_value:
+                context_info.append(f"سن: {age_value}")
+
+        # Location
+        user_location = merged_context.get("user_location")
+        if user_location:
+            location_value = user_location.get("value") if isinstance(user_location, dict) else user_location
+            if location_value:
+                context_info.append(f"موقعیت: {location_value}")
+
+        # Occupation
+        user_occupation = merged_context.get("user_occupation")
+        if user_occupation:
+            occupation_value = user_occupation.get("value") if isinstance(user_occupation, dict) else user_occupation
+            if occupation_value:
+                context_info.append(f"شغل: {occupation_value}")
+
+        # Interests
+        user_interests = merged_context.get("user_interests")
+        if user_interests:
+            interests_value = user_interests.get("value") if isinstance(user_interests, dict) else user_interests
+            if interests_value:
+                if isinstance(interests_value, list):
+                    interests_str = "، ".join(str(i) for i in interests_value)
+                    context_info.append(f"علایق: {interests_str}")
+                else:
+                    context_info.append(f"علایق: {interests_value}")
+
+        # Preferred Language
+        preferred_lang = merged_context.get("preferred_language")
+        if preferred_lang:
+            if isinstance(preferred_lang, dict):
+                lang_value = (preferred_lang.get("value") or "").strip()
+            else:
+                lang_value = str(preferred_lang).strip()
+            if lang_value:
+                context_info.append(f"زبان ترجیحی: {lang_value}")
+
+        # Add summary of last 1-2 conversation turns
+        recent_conversation: List[str] = []
+        if history and len(history) > 0:
+            # Get the last 2-4 messages (1-2 complete turns: user + assistant pairs)
+            last_messages = history[-4:] if len(history) >= 4 else history[-2:] if len(history) >= 2 else history
+
+            for msg in last_messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role and content:
+                    role_label = "کاربر" if role == "user" else "دستیار" if role == "assistant" else role
+                    # Truncate long messages
+                    truncated_content = content[:100] + "..." if len(content) > 100 else content
+                    recent_conversation.append(f"{role_label}: {truncated_content}")
+
+        # Combine static prompt with dynamic context
+        system_parts = []
+        if static_prompt:
+            system_parts.append(static_prompt)
+
+        if context_info:
+            system_parts.append("📋 اطلاعات کاربر:\n" + "\n".join(context_info))
+
+        if recent_conversation:
+            system_parts.append("💬 خلاصه گفتگوی اخیر:\n" + "\n".join(recent_conversation))
+
+        # Create the combined system message
+        if system_parts:
+            combined_system_message = "\n\n".join(system_parts)
+            # Insert or update system message at the beginning of history
+            if not message_history or message_history[0].get("role") != "system":
+                message_history.insert(
+                    0, {"role": "system", "content": combined_system_message}
+                )
+            else:
+                # Update existing system message
+                message_history[0]["content"] = combined_system_message
+
+        # Always use the LLM - trust it to use the context properly!
+        result = await self.agent.run(
+            request.message,
+            message_history=message_history,
         )
-
-        # If we already know the user's name in session context and the user
-        # explicitly asks for it, answer deterministically from context instead
-        # of delegating to the LLM (to avoid hallucination / forgetting).
-        if user_name_value and is_name_question:
-            assistant_output = f"اسم شما {user_name_value} است."
-        else:
-            # Build a combined system message that includes:
-            # 1. The static system prompt from config
-            # 2. Dynamic session context (user name, age, location, occupation, interests, language, etc.)
-            # 3. Summary of the last 1-2 conversation turns
-
-            # Start with the static system prompt
-            static_prompt = self.config.extra.get("system_prompt", "")
-
-            # Build dynamic context information from all available user data
-            context_info: List[str] = []
-
-            # Extract all user context fields
-            if user_name_value:
-                context_info.append(f"نام کاربر: {user_name_value}")
-
-            # Age
-            user_age = merged_context.get("user_age")
-            if user_age:
-                age_value = user_age.get("value") if isinstance(user_age, dict) else user_age
-                if age_value:
-                    context_info.append(f"سن: {age_value}")
-
-            # Location
-            user_location = merged_context.get("user_location")
-            if user_location:
-                location_value = user_location.get("value") if isinstance(user_location, dict) else user_location
-                if location_value:
-                    context_info.append(f"موقعیت: {location_value}")
-
-            # Occupation
-            user_occupation = merged_context.get("user_occupation")
-            if user_occupation:
-                occupation_value = user_occupation.get("value") if isinstance(user_occupation, dict) else user_occupation
-                if occupation_value:
-                    context_info.append(f"شغل: {occupation_value}")
-
-            # Interests
-            user_interests = merged_context.get("user_interests")
-            if user_interests:
-                interests_value = user_interests.get("value") if isinstance(user_interests, dict) else user_interests
-                if interests_value:
-                    if isinstance(interests_value, list):
-                        interests_str = "، ".join(str(i) for i in interests_value)
-                        context_info.append(f"علایق: {interests_str}")
-                    else:
-                        context_info.append(f"علایق: {interests_value}")
-
-            # Preferred Language
-            preferred_lang = merged_context.get("preferred_language")
-            if preferred_lang:
-                if isinstance(preferred_lang, dict):
-                    lang_value = (preferred_lang.get("value") or "").strip()
-                else:
-                    lang_value = str(preferred_lang).strip()
-                if lang_value:
-                    context_info.append(f"زبان ترجیحی: {lang_value}")
-
-            # Add summary of last 1-2 conversation turns
-            recent_conversation: List[str] = []
-            if history and len(history) > 0:
-                # Get the last 2-4 messages (1-2 complete turns: user + assistant pairs)
-                last_messages = history[-4:] if len(history) >= 4 else history[-2:] if len(history) >= 2 else history
-
-                for msg in last_messages:
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role and content:
-                        role_label = "کاربر" if role == "user" else "دستیار" if role == "assistant" else role
-                        # Truncate long messages
-                        truncated_content = content[:100] + "..." if len(content) > 100 else content
-                        recent_conversation.append(f"{role_label}: {truncated_content}")
-
-            # Combine static prompt with dynamic context
-            system_parts = []
-            if static_prompt:
-                system_parts.append(static_prompt)
-
-            if context_info:
-                system_parts.append("📋 اطلاعات کاربر:\n" + "\n".join(context_info))
-
-            if recent_conversation:
-                system_parts.append("💬 خلاصه گفتگوی اخیر:\n" + "\n".join(recent_conversation))
-
-            # Create the combined system message
-            if system_parts:
-                combined_system_message = "\n\n".join(system_parts)
-                # Insert or update system message at the beginning of history
-                if not message_history or message_history[0].get("role") != "system":
-                    message_history.insert(
-                        0, {"role": "system", "content": combined_system_message}
-                    )
-                else:
-                    # Update existing system message
-                    message_history[0]["content"] = combined_system_message
-
-            result = await self.agent.run(
-                request.message,
-                message_history=message_history,
-            )
-            assistant_output = result.output
+        assistant_output = result.output
 
         # Append latest turn to history so caller can persist it
         updated_history: List[Dict[str, Any]] = history.copy() if history else []
