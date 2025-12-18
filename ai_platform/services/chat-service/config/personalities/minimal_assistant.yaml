@@ -63,22 +63,32 @@ user_data_fields:
   # All other fields disabled for privacy
   - field_name: age
     normalized_name: user_age
+    description: "User's age (disabled for privacy)"
+    data_type: integer
     enabled: false
 
   - field_name: location
     normalized_name: user_location
+    description: "User's location (disabled for privacy)"
+    data_type: string
     enabled: false
 
   - field_name: occupation
     normalized_name: user_occupation
+    description: "User's occupation (disabled for privacy)"
+    data_type: string
     enabled: false
 
   - field_name: email
     normalized_name: user_email
+    description: "User's email (disabled for privacy)"
+    data_type: string
     enabled: false
 
   - field_name: phone
     normalized_name: user_phone
+    description: "User's phone (disabled for privacy)"
+    data_type: string
     enabled: false
 
 context_display:
@@ -100,7 +110,7 @@ model_config:
   max_turns: 10
 
 privacy:
-  data_ttl: 3600  # 1 hour only
+  data_ttl: 3600 # 1 hour only
   auto_delete_sensitive_fields: true
   sensitive_fields:
     - user_name

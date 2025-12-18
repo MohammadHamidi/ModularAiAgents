@@ -18,6 +18,22 @@ async def rewrite_service_tier(resp: httpx.Response):
 
     if not path.endswith("/chat/completions"):
         return
+    
+    # Debug: Log request body to see if tools are being sent
+    try:
+        req_body = json.loads(resp.request.content)
+        has_tools = "tools" in req_body
+        tool_count = len(req_body.get("tools", []))
+        print(f"[HOOK] REQUEST has_tools={has_tools} tool_count={tool_count}", flush=True)
+        if has_tools:
+            for t in req_body.get("tools", []):
+                fn = t.get("function", {})
+                name = fn.get("name", "?")
+                desc = fn.get("description", "")[:200]  # First 200 chars
+                print(f"[HOOK] TOOL: {name}", flush=True)
+                print(f"[HOOK] TOOL_DESC: {desc}...", flush=True)
+    except Exception as e:
+        print(f"[HOOK] req parse error: {e}", flush=True)
 
     await resp.aread()
     try:
@@ -28,6 +44,18 @@ async def rewrite_service_tier(resp: httpx.Response):
 
     st = data.get("service_tier")
     print(f"[HOOK] service_tier={st!r}", flush=True)
+    
+    # Debug: Log response to see if tool_calls are returned
+    choices = data.get("choices", [])
+    if choices:
+        msg = choices[0].get("message", {})
+        tool_calls = msg.get("tool_calls", [])
+        finish_reason = choices[0].get("finish_reason", "?")
+        print(f"[HOOK] RESPONSE finish_reason={finish_reason} tool_calls_count={len(tool_calls)}", flush=True)
+        if tool_calls:
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                print(f"[HOOK] TOOL_CALL: {fn.get('name')} args={fn.get('arguments')}", flush=True)
 
     if st and st not in ALLOWED:
         data["service_tier"] = MAP.get(st, "default")

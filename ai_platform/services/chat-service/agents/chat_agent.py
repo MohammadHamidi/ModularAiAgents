@@ -1,7 +1,7 @@
 import datetime
 import re
 from typing import Any, Dict, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 from openai import AsyncOpenAI
@@ -21,12 +21,13 @@ class ChatDependencies:
     user_info: Dict[str, Any]  # Current user information from shared_context
     pending_updates: Dict[str, Any]  # Will be populated by tools
     agent_config: FullAgentConfig  # Full agent configuration
+    tool_results: Dict[str, Any] = field(default_factory=dict)  # Results from tool calls
 
 
 class ChatAgent(BaseAgent):
     """Chat agent with AI-powered tool for extracting user information."""
 
-    def __init__(self, base_config: AgentConfig, context_manager, agent_config: FullAgentConfig):
+    def __init__(self, base_config: AgentConfig, context_manager, agent_config: FullAgentConfig, custom_tools: List[Any] = None):
         """
         Initialize chat agent with full configuration.
 
@@ -34,15 +35,64 @@ class ChatAgent(BaseAgent):
             base_config: Base agent config (for compatibility)
             context_manager: Context manager for storing data
             agent_config: Full agent configuration from YAML
+            custom_tools: List of custom Tool objects for this agent
         """
         super().__init__(base_config, context_manager)
         self.agent_config = agent_config
         self.field_map = agent_config.build_field_map()
+        self.custom_tools = custom_tools or []
+
+    def _build_dynamic_tool_description(self) -> str:
+        """Build tool description dynamically based on enabled fields."""
+        enabled_fields = self.agent_config.get_enabled_fields()
+        
+        # Build field list for documentation
+        field_lines = []
+        field_names = []
+        for f in enabled_fields:
+            field_names.append(f.field_name)
+            example = f.examples[0] if f.examples else f"<{f.field_name}>"
+            aliases_str = f" (aliases: {', '.join(f.aliases)})" if f.aliases else ""
+            field_lines.append(f"- {f.description}{aliases_str} → field_name=\"{f.field_name}\", field_value=\"{example}\"")
+        
+        return f'''MANDATORY: Extract and save user information from messages.
+
+YOU MUST call this tool whenever the user mentions ANY of these:
+{chr(10).join(field_lines)}
+
+Examples:
+- User says "من علی هستم" → call save_user_info(field_name="name", field_value="علی")
+- User says "از شیراز هستم" → call save_user_info(field_name="location", field_value="شیراز")
+- User says "25 سالمه" → call save_user_info(field_name="age", field_value="25")
+
+IMPORTANT: Call this tool SILENTLY - never tell the user you're saving info.
+You can call this multiple times in one response for multiple pieces of info.
+
+Args:
+    field_name: One of: {', '.join(field_names)}
+    field_value: The extracted value from user's message
+
+Returns:
+    Confirmation (internal only - don't show to user)
+'''
 
     async def initialize(self, http_client: httpx.AsyncClient | None = None):
         # Use provided http_client or create a new one
         client = http_client or create_litellm_compatible_client()
+        
+        # Store the client reference for reinitialization
+        self._stored_http_client = client
 
+        await self._build_agent(client)
+
+        # Only store http_client if we created it ourselves
+        if http_client is None:
+            self.http_client = client
+        else:
+            self.http_client = None
+    
+    async def _build_agent(self, client: httpx.AsyncClient):
+        """Build/rebuild the agent with current field configuration."""
         openai_client = AsyncOpenAI(
             api_key=self.config.extra.get("api_key"),
             base_url=self.config.extra.get("base_url"),
@@ -51,6 +101,21 @@ class ChatAgent(BaseAgent):
         provider = OpenAIProvider(openai_client=openai_client)
         model = OpenAIChatModel(self.config.model, provider=provider)
 
+        # Build dynamic tool description BEFORE creating agent
+        tool_doc = self._build_dynamic_tool_description()
+        
+        # Create the tool function with dynamic docstring
+        async def save_user_info_impl(
+            ctx: RunContext[ChatDependencies],
+            field_name: str,
+            field_value: str,
+        ) -> str:
+            return await self._handle_save_user_info(ctx, field_name, field_value)
+        
+        # Set docstring BEFORE registration
+        save_user_info_impl.__doc__ = tool_doc
+        save_user_info_impl.__name__ = "save_user_info"
+
         # Create agent with tool for saving user information
         self.agent = Agent(
             model,
@@ -58,34 +123,109 @@ class ChatAgent(BaseAgent):
             system_prompt="",  # Will be set dynamically in process()
         )
 
-        # Register the tool for saving user information
-        @self.agent.tool
-        async def save_user_info(
-            ctx: RunContext[ChatDependencies],
-            field_name: str,
-            field_value: str,
-        ) -> str:
-            """Save or update user information from the conversation.
-
-            Use this tool to silently extract and save user details from the conversation.
-
-            IMPORTANT: Never mention to the user that you're saving this information.
-            Just use this tool in the background and continue the conversation naturally.
-
-            Args:
-                field_name: The type of information (check config for allowed fields)
-                field_value: The actual value to save
-
-            Returns:
-                Confirmation message (internal use only, don't show to user)
-            """
-            return await self._handle_save_user_info(ctx, field_name, field_value)
-
-        # Only store http_client if we created it ourselves
-        if http_client is None:
-            self.http_client = client
+        # Register the save_user_info tool
+        self.agent.tool(save_user_info_impl)
+        
+        # Register custom tools for this persona
+        await self._register_custom_tools()
+    
+    async def reinitialize_tools(self):
+        """Reinitialize the agent with updated field configuration."""
+        if hasattr(self, '_stored_http_client'):
+            await self._build_agent(self._stored_http_client)
+            return True
+        return False
+    
+    async def _register_custom_tools(self):
+        """Register custom tools for this persona."""
+        for tool in self.custom_tools:
+            if not tool.enabled:
+                continue
+            
+            # Register each tool with explicit parameter handling
+            self._register_tool_explicit(tool)
+    
+    def _register_tool_explicit(self, tool):
+        """Register a tool with explicit parameter definitions."""
+        tool_ref = tool  # Capture for closure
+        params = tool.parameters.get("properties", {})
+        
+        # Build comprehensive docstring
+        doc_parts = [tool.description, "\n\nParameters:"]
+        for param_name, param_info in params.items():
+            param_desc = param_info.get("description", "No description")
+            doc_parts.append(f"    {param_name}: {param_desc}")
+        full_doc = "\n".join(doc_parts)
+        
+        # Create wrapper based on tool type (handles common tool patterns)
+        if tool.name == "calculator":
+            async def calc_tool(ctx: RunContext[ChatDependencies], expression: str) -> str:
+                """Perform mathematical calculations."""
+                result = await tool_ref.execute(expression=expression)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            calc_tool.__doc__ = full_doc
+            self.agent.tool(calc_tool)
+            
+        elif tool.name == "knowledge_base_search":
+            async def kb_tool(ctx: RunContext[ChatDependencies], query: str, category: str = None) -> str:
+                """Search the knowledge base."""
+                result = await tool_ref.execute(query=query, category=category)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            kb_tool.__doc__ = full_doc
+            self.agent.tool(kb_tool)
+            
+        elif tool.name == "get_weather":
+            async def weather_tool(ctx: RunContext[ChatDependencies], city: str) -> str:
+                """Get weather for a city."""
+                result = await tool_ref.execute(city=city)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            weather_tool.__doc__ = full_doc
+            self.agent.tool(weather_tool)
+            
+        elif tool.name == "get_learning_resource":
+            async def learning_tool(ctx: RunContext[ChatDependencies], topic: str, level: str = "beginner") -> str:
+                """Get learning resources."""
+                result = await tool_ref.execute(topic=topic, level=level)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            learning_tool.__doc__ = full_doc
+            self.agent.tool(learning_tool)
+            
+        elif tool.name == "web_search":
+            async def web_tool(ctx: RunContext[ChatDependencies], query: str) -> str:
+                """Search the web."""
+                result = await tool_ref.execute(query=query)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            web_tool.__doc__ = full_doc
+            self.agent.tool(web_tool)
+            
+        elif tool.name == "get_company_info":
+            async def company_tool(ctx: RunContext[ChatDependencies], company_name: str, info_type: str = "overview") -> str:
+                """Get company information."""
+                result = await tool_ref.execute(company_name=company_name, info_type=info_type)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            company_tool.__doc__ = full_doc
+            self.agent.tool(company_tool)
+            
         else:
-            self.http_client = None
+            # Generic fallback - single string query parameter
+            async def generic_tool(ctx: RunContext[ChatDependencies], query: str) -> str:
+                """Execute tool with query."""
+                result = await tool_ref.execute(query=query)
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            generic_tool.__name__ = tool.name
+            generic_tool.__doc__ = full_doc
+            self.agent.tool(generic_tool)
+    
+    def add_custom_tool(self, tool):
+        """Add a custom tool to this agent."""
+        self.custom_tools.append(tool)
 
     async def _handle_save_user_info(
         self,
@@ -169,6 +309,33 @@ class ChatAgent(BaseAgent):
             ctx.deps.pending_updates[normalized_field] = {"value": field_value}
             return f"Saved {normalized_field}: {field_value}"
 
+    def _build_context_summary(self, user_info: Dict[str, Any]) -> str:
+        """Build a brief context summary for injecting into user message."""
+        if not user_info:
+            return ""
+        
+        parts = []
+        
+        # Build field labels dynamically from config
+        field_labels = {}
+        for field_config in self.agent_config.user_data_fields:
+            # Use field_labels from context_display config if available
+            label = self.agent_config.context_display.get('field_labels', {}).get(
+                field_config.normalized_name,
+                field_config.field_name  # Fallback to field_name
+            )
+            field_labels[field_config.normalized_name] = label
+        
+        for key, data in user_info.items():
+            value = data.get('value') if isinstance(data, dict) else data
+            if value:
+                label = field_labels.get(key, key)
+                if isinstance(value, list):
+                    value = '، '.join(str(v) for v in value)
+                parts.append(f"{label}: {value}")
+        
+        return '؛ '.join(parts) if parts else ""
+
     def _convert_history(
         self, history: Optional[List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
@@ -185,6 +352,15 @@ class ChatAgent(BaseAgent):
             converted.append({"role": role, "content": content})
         return converted
 
+    def _get_dynamic_field_instructions(self) -> str:
+        """Build dynamic field extraction instructions based on enabled fields."""
+        enabled_fields = self.agent_config.get_enabled_fields()
+        lines = ["🔧 فیلدهای قابل ذخیره (از save_user_info استفاده کن):"]
+        for f in enabled_fields:
+            aliases_hint = f" یا {', '.join(f.aliases)}" if f.aliases else ""
+            lines.append(f"  - {f.field_name}{aliases_hint} → save_user_info(field_name=\"{f.field_name}\", ...)")
+        return "\n".join(lines)
+
     def _build_dynamic_system_prompt(
         self,
         user_info: Dict[str, Any],
@@ -197,6 +373,9 @@ class ChatAgent(BaseAgent):
         complete_prompt = self.agent_config.get_complete_system_prompt()
         if complete_prompt:
             parts.append(complete_prompt)
+        
+        # Add dynamic field instructions (so agent knows all available fields)
+        parts.append(self._get_dynamic_field_instructions())
 
         # Add user information context if enabled
         context_config = self.agent_config.context_display
@@ -291,9 +470,18 @@ class ChatAgent(BaseAgent):
             agent_config=self.agent_config,
         )
 
+        # Build user message with context prepended for better recall
+        # Use a format that's clearly internal and won't be repeated by the model
+        user_message = request.message
+        if shared_context:
+            context_summary = self._build_context_summary(shared_context)
+            if context_summary:
+                # Format: Hidden context that model should use but NEVER repeat
+                user_message = f"<internal_context>{context_summary}</internal_context>\n{request.message}"
+        
         # Run the agent with tool support
         result = await self.agent.run(
-            request.message,
+            user_message,
             message_history=message_history,
             deps=deps,
         )

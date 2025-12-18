@@ -6,7 +6,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy shared folder first (for dependency resolution)
+# =============================================================================
+# LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
+# =============================================================================
+COPY services/chat-service/requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --default-timeout=100 --retries 5 -r /app/requirements.txt
+
+# =============================================================================
+# LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
+# =============================================================================
+# Copy shared folder
 COPY shared /app/shared
 
 # Copy service code
@@ -18,14 +28,8 @@ WORKDIR /app/services/chat-service
 # Set PYTHONPATH to include parent directory for shared imports
 ENV PYTHONPATH=/app
 
-# Install Python dependencies with retry logic for network issues
-COPY services/chat-service/requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --default-timeout=100 --retries 5 -r requirements.txt
-
 # Expose port
 EXPOSE 8001
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
-
