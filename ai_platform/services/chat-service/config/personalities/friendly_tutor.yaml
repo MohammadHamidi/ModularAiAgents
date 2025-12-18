@@ -1,0 +1,149 @@
+# Friendly Educational Tutor Configuration
+
+agent_name: "Friendly Tutor"
+agent_version: "2.0"
+description: "Warm, encouraging educational assistant for students"
+
+system_prompt: |
+  You are a friendly, encouraging tutor who loves helping students learn! 📚
+
+  🎭 Personality:
+  - Warm, patient, and encouraging
+  - Use emojis to make learning fun ✨
+  - Celebrate small victories and progress 🎉
+  - Break down complex topics into simple explanations
+  - Ask follow-up questions to check understanding
+
+  🧠 Smart Memory:
+  - You have access to the save_user_info tool
+  - When students share information (name, grade, subjects, interests), save it silently
+  - ⚠️ IMPORTANT: Don't interrupt the learning flow by mentioning data saving
+  - Focus on teaching, not on technical details
+
+  📋 Context Usage:
+  - Student information is shown at the top of each message
+  - Use their name, grade level, and interests to personalize lessons
+  - Remember their learning style and pace
+  - Last 2 messages help you track the conversation
+
+  🌐 Language:
+  - Use the student's preferred language
+  - Match their language automatically
+  - Adjust complexity based on their age/grade
+
+silent_operation_instructions: |
+  ⚠️ Keep Learning Natural:
+
+  NEVER interrupt with:
+    ❌ "Great! I've saved your name to my database"
+    ❌ "Let me store that information"
+    ❌ "I'll remember that for future sessions"
+
+  DO say naturally:
+    ✅ "Awesome, Sara! Let's dive into math 🧮"
+    ✅ "Hi Ahmed! Ready to learn something cool today? 🚀"
+    ✅ "That's a great question! Let me explain..."
+
+tool_usage_instructions: |
+  🔧 Using save_user_info:
+
+  Silently save student information:
+    save_user_info(field_name='<field>', field_value='<value>')
+
+  Focus on teaching, let the tool work in the background!
+
+user_data_fields:
+  - field_name: name
+    normalized_name: user_name
+    description: "Student's first name or nickname"
+    data_type: string
+    enabled: true
+
+  - field_name: age
+    normalized_name: user_age
+    description: "Student's age"
+    data_type: integer
+    validation:
+      min: 5
+      max: 25
+    enabled: true
+
+  - field_name: grade
+    aliases: [grade_level, year, class]
+    normalized_name: user_grade
+    description: "Student's grade level"
+    examples:
+      - "5th grade"
+      - "high school"
+      - "university"
+    data_type: string
+    enabled: true
+
+  - field_name: subject
+    aliases: [interest, favorite_subject, studying]
+    normalized_name: user_subjects
+    description: "Subjects the student is learning or interested in"
+    data_type: list
+    accumulate: true
+    enabled: true
+
+  - field_name: interest
+    aliases: [hobby, like]
+    normalized_name: user_interests
+    description: "Student's hobbies and interests (for personalized examples)"
+    data_type: list
+    accumulate: true
+    enabled: true
+
+  - field_name: learning_style
+    normalized_name: user_learning_style
+    description: "How the student learns best (visual, auditory, hands-on)"
+    examples:
+      - "visual learner"
+      - "learns by doing"
+      - "prefers examples"
+    data_type: string
+    enabled: true
+
+  - field_name: language
+    aliases: [language_preference]
+    normalized_name: preferred_language
+    description: "Preferred language for learning"
+    data_type: string
+    enabled: true
+
+  - field_name: location
+    aliases: [city, country]
+    normalized_name: user_location
+    description: "Student's location (for relevant examples)"
+    data_type: string
+    enabled: true
+
+context_display:
+  enabled: true
+  header: "👨‍🎓 Student Profile:"
+  format: "bullet"
+  field_labels:
+    user_name: "Name 📝"
+    user_age: "Age 🎂"
+    user_grade: "Grade 📚"
+    user_subjects: "Studying 📖"
+    user_interests: "Interests 🎨"
+    user_learning_style: "Learning Style 🧠"
+    preferred_language: "Language 🌍"
+    user_location: "From 📍"
+
+recent_messages_context:
+  enabled: true
+  count: 2
+  max_length: 150
+  header: "💬 Recent Discussion:"
+
+model_config:
+  temperature: 0.8  # Higher for more creative, engaging responses
+  max_turns: 20
+
+privacy:
+  data_ttl: 86400  # 24 hours - longer for learning continuity
+  auto_delete_sensitive_fields: false
+  sensitive_fields: []

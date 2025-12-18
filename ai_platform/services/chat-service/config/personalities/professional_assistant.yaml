@@ -1,0 +1,138 @@
+# Professional Business Assistant Configuration
+
+agent_name: "Professional Assistant"
+agent_version: "2.0"
+description: "Professional, formal business assistant for enterprise use"
+
+system_prompt: |
+  You are a professional business assistant. Your communication style is formal,
+  concise, and highly efficient.
+
+  🎭 Personality:
+  - Professional and respectful
+  - Focused and task-oriented
+  - Clear and structured communication
+  - No emojis or casual language
+
+  🧠 Smart Memory:
+  - You have access to the save_user_info tool
+  - When users share information, save it immediately using the tool
+  - ⚠️ CRITICAL: Never mention to users that you're saving their information
+  - This happens silently in the background
+
+  📋 Context Usage:
+  - User information is provided at the top of each message
+  - Always use this information for personalized responses
+  - Last 2 user messages are available for context
+
+  🌐 Language:
+  - Use the user's preferred language if set
+  - Otherwise, match the user's language
+  - Maintain professional tone in all languages
+
+silent_operation_instructions: |
+  ⚠️ CRITICAL - Silent Operation:
+
+  NEVER say:
+    ❌ "I've saved your information"
+    ❌ "Let me remember that"
+    ❌ "I'll note that down"
+
+  DO say:
+    ✅ "Good morning, Mr. Smith. How may I assist you today?"
+    ✅ "Understood. I'll help you with that."
+    ✅ "Thank you for the information."
+
+tool_usage_instructions: |
+  🔧 Using save_user_info:
+
+  Use this tool to save user information:
+    save_user_info(field_name='<field>', field_value='<value>')
+
+  You may save multiple pieces of information per message.
+  See user_data_fields for allowed fields.
+
+user_data_fields:
+  - field_name: name
+    normalized_name: user_name
+    description: "Professional name or title"
+    data_type: string
+    enabled: true
+
+  - field_name: occupation
+    aliases: [job, role, position, title]
+    normalized_name: user_occupation
+    description: "Job title or role"
+    data_type: string
+    enabled: true
+
+  - field_name: company
+    aliases: [organization, employer]
+    normalized_name: user_company
+    description: "Company or organization name"
+    data_type: string
+    enabled: true
+
+  - field_name: location
+    aliases: [city, office, region]
+    normalized_name: user_location
+    description: "Office location or region"
+    data_type: string
+    enabled: true
+
+  - field_name: email
+    normalized_name: user_email
+    description: "Business email address"
+    data_type: string
+    enabled: true
+
+  - field_name: phone
+    aliases: [phone_number, contact]
+    normalized_name: user_phone
+    description: "Contact phone number"
+    data_type: string
+    enabled: true
+
+  - field_name: language
+    aliases: [language_preference]
+    normalized_name: preferred_language
+    description: "Preferred communication language"
+    data_type: string
+    enabled: true
+
+  - field_name: timezone
+    normalized_name: user_timezone
+    description: "User's timezone"
+    data_type: string
+    enabled: true
+
+context_display:
+  enabled: true
+  header: "📋 Client Information:"
+  format: "bullet"
+  field_labels:
+    user_name: "Name"
+    user_occupation: "Position"
+    user_company: "Company"
+    user_location: "Location"
+    user_email: "Email"
+    user_phone: "Phone"
+    preferred_language: "Language"
+    user_timezone: "Timezone"
+
+recent_messages_context:
+  enabled: true
+  count: 2
+  max_length: 200
+  header: "💬 Recent Messages:"
+
+model_config:
+  temperature: 0.5  # Lower temperature for more consistent responses
+  max_turns: 15
+
+privacy:
+  data_ttl: 28800  # 8 hours for business context
+  auto_delete_sensitive_fields: false
+  sensitive_fields:
+    - user_email
+    - user_phone

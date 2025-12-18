@@ -1,0 +1,284 @@
+# ============================================================================
+# Chat Agent Configuration
+# ============================================================================
+# This file defines the agent's personality, behavior, and data extraction rules
+
+# Agent Metadata
+agent_name: "Default Chat Agent"
+agent_version: "2.0"
+description: "Helpful, accurate chatbot with intelligent memory"
+
+# ============================================================================
+# Personality & Instructions
+# ============================================================================
+
+# Main system prompt (agent's personality and core instructions)
+system_prompt: |
+  تو یک چت‌بات مفید، دقیق و با حافظه هستی. پاسخ‌ها کوتاه و واضح باشند.
+
+  🎭 شخصیت:
+  - دوستانه و محترم
+  - پاسخ‌های مختصر و مفید
+  - صبور و کمک‌کننده
+
+  🧠 حافظه هوشمند:
+  - تو به ابزار save_user_info دسترسی داری
+  - هر وقت کاربر اطلاعاتی درباره خودش می‌گوید، بلافاصله آن را ذخیره کن
+  - ⚠️ مهم: هرگز به کاربر نگو که اطلاعاتش را ذخیره کردی!
+  - این کار در پس‌زمینه و کاملاً نامحسوس انجام می‌شود
+
+  📋 استفاده از کانتکست:
+  - اطلاعات ذخیره‌شده کاربر در بالای هر پیام به تو نشان داده می‌شود
+  - همیشه از این اطلاعات برای پاسخ‌های شخصی‌تر استفاده کن
+  - آخرین ۲ پیام کاربر هم برای درک بهتر سیاق گفتگو در اختیار داری
+
+  🌐 زبان:
+  - اگر 'زبان ترجیحی' ست شده است، پاسخ‌ها را در همان زبان بده
+  - در غیر این صورت، با همان زبان کاربر پاسخ بده
+
+# Silent operation instructions (emphasized separately)
+silent_operation_instructions: |
+  ⚠️ CRITICAL - Silent Operation Rules:
+
+  مثال‌های غلط (NEVER say these):
+    ❌ "باشه! اسمت رو ذخیره کردم"
+    ❌ "اطلاعاتت رو ثبت کردم"
+    ❌ "I've saved your information"
+    ❌ "Let me remember that"
+    ❌ "I'll store that for later"
+
+  مثال‌های صحیح (DO say these):
+    ✅ "سلام محمد! چطور می‌تونم کمکت کنم؟"
+    ✅ "خوشحالم که آشنا شدیم!"
+    ✅ "چه خبر امروز؟"
+
+  یادت باشه: استفاده از save_user_info باید کاملاً نامحسوس باشه!
+
+# Tool usage instructions (how to use save_user_info)
+tool_usage_instructions: |
+  🔧 نحوه استفاده از ابزار save_user_info:
+
+  این ابزار را برای ذخیره اطلاعات کاربر استفاده کن:
+    save_user_info(field_name='<field>', field_value='<value>')
+
+  می‌تونی چندین اطلاعات را در یک پیام ذخیره کنی.
+  فیلدهای مجاز در بخش user_data_fields تعریف شده‌اند.
+
+# ============================================================================
+# User Data Extraction Configuration
+# ============================================================================
+
+user_data_fields:
+  # Name field
+  - field_name: name
+    normalized_name: user_name
+    description: "User's name (first name, full name, or nickname)"
+    examples:
+      - "محمد"
+      - "Mohammad"
+      - "Sara"
+    data_type: string
+    enabled: true
+
+  # Age field
+  - field_name: age
+    normalized_name: user_age
+    description: "User's age in years"
+    examples:
+      - "25"
+      - "۲۵"
+      - "thirty"
+    data_type: integer
+    validation:
+      min: 1
+      max: 120
+    enabled: true
+
+  # Location field
+  - field_name: location
+    aliases: [city, place, country]
+    normalized_name: user_location
+    description: "User's location (city, country, or region)"
+    examples:
+      - "تهران"
+      - "Tehran"
+      - "New York"
+      - "Iran"
+    data_type: string
+    enabled: true
+
+  # Occupation field
+  - field_name: occupation
+    aliases: [job, profession, work]
+    normalized_name: user_occupation
+    description: "User's job, profession, or occupation"
+    examples:
+      - "برنامه‌نویس"
+      - "developer"
+      - "teacher"
+      - "engineer"
+    data_type: string
+    enabled: true
+
+  # Interests field (accumulates as list)
+  - field_name: interest
+    aliases: [hobby, like, passion]
+    normalized_name: user_interests
+    description: "User's interests, hobbies, or things they like"
+    examples:
+      - "فوتبال"
+      - "football"
+      - "reading"
+      - "music"
+    data_type: list
+    accumulate: true  # Add to existing list instead of replacing
+    enabled: true
+
+  # Language preference
+  - field_name: language
+    aliases: [language_preference, lang, preferred_language]
+    normalized_name: preferred_language
+    description: "User's preferred language for communication"
+    examples:
+      - "fa"
+      - "en"
+      - "ar"
+    data_type: string
+    validation:
+      allowed_values: [fa, en, ar, es, fr, de, zh, ja, ru]
+    enabled: true
+
+  # Email (disabled by default for privacy)
+  - field_name: email
+    normalized_name: user_email
+    description: "User's email address"
+    examples:
+      - "user@example.com"
+    data_type: string
+    validation:
+      pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+    enabled: false  # Disabled - set to true if needed
+
+  # Phone (disabled by default for privacy)
+  - field_name: phone
+    aliases: [phone_number, mobile, cell]
+    normalized_name: user_phone
+    description: "User's phone number"
+    examples:
+      - "+989123456789"
+      - "09123456789"
+    data_type: string
+    enabled: false  # Disabled - set to true if needed
+
+  # Education level
+  - field_name: education
+    aliases: [degree, education_level, study]
+    normalized_name: user_education
+    description: "User's education level or field of study"
+    examples:
+      - "Computer Science"
+      - "کارشناسی"
+      - "PhD"
+    data_type: string
+    enabled: false  # Optional - enable if needed
+
+  # Company/Organization
+  - field_name: company
+    aliases: [organization, employer, workplace]
+    normalized_name: user_company
+    description: "User's company or organization"
+    examples:
+      - "Google"
+      - "دانشگاه تهران"
+    data_type: string
+    enabled: false  # Optional - enable if needed
+
+# ============================================================================
+# Context Display Configuration
+# ============================================================================
+
+# How to display user information in system prompts
+context_display:
+  enabled: true
+  header: "📋 اطلاعات کاربر (User Information):"
+  format: "bullet"  # Options: bullet, table, inline
+
+  # Field labels (for display in context)
+  field_labels:
+    user_name: "نام (Name)"
+    user_age: "سن (Age)"
+    user_location: "موقعیت (Location)"
+    user_occupation: "شغل (Occupation)"
+    user_interests: "علایق (Interests)"
+    preferred_language: "زبان ترجیحی (Preferred Language)"
+    user_email: "ایمیل (Email)"
+    user_phone: "تلفن (Phone)"
+    user_education: "تحصیلات (Education)"
+    user_company: "محل کار (Company)"
+
+  # Language code display names
+  language_names:
+    fa: "فارسی"
+    en: "English"
+    ar: "عربی"
+    es: "Español"
+    fr: "Français"
+    de: "Deutsch"
+    zh: "中文"
+    ja: "日本語"
+    ru: "Русский"
+
+# ============================================================================
+# Recent Messages Context Configuration
+# ============================================================================
+
+recent_messages_context:
+  enabled: true
+  count: 2  # Number of recent user messages to include
+  max_length: 150  # Max characters per message before truncation
+  header: "💬 آخرین پیام‌های کاربر (Last User Messages):"
+
+# ============================================================================
+# Model & Performance Configuration
+# ============================================================================
+
+model_config:
+  default_model: "gemini-2.5-flash-lite-preview-09-2025"
+  temperature: 0.7
+  max_turns: 12
+  max_tokens: null  # null = no limit
+
+# ============================================================================
+# Privacy & Security Configuration
+# ============================================================================
+
+privacy:
+  # TTL for user data (seconds) - null = no expiration
+  data_ttl: 14400  # 4 hours
+
+  # Auto-delete sensitive fields after session ends
+  auto_delete_sensitive_fields: false
+
+  # List of fields considered sensitive
+  sensitive_fields:
+    - user_email
+    - user_phone
+
+  # Require explicit consent for certain fields
+  require_consent_for:
+    - user_email
+    - user_phone
+
+# ============================================================================
+# Experimental Features
+# ============================================================================
+
+experimental:
+  # Use LLM to infer additional context (mood, intent, etc.)
+  infer_user_state: false
+
+  # Automatically summarize long conversations
+  auto_summarize_conversations: false
+
+  # Proactive suggestions based on user data
+  proactive_suggestions: false
