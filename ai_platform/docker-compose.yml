@@ -29,9 +29,11 @@ services:
     # If running locally, uncomment: ports: - "8000:8000"
     depends_on:
       - chat-service
-    volumes:
-      - ./shared:/app/shared
-      - ./services/gateway:/app/services/gateway
+    # Volume mounts removed for production - code is copied into image during build
+    # For local development with hot-reload, uncomment:
+    # volumes:
+    #   - ./shared:/app/shared
+    #   - ./services/gateway:/app/services/gateway
     restart: unless-stopped
 
   chat-service:
@@ -54,9 +56,11 @@ services:
     # If running locally, uncomment: ports: - "8001:8001"
     depends_on:
       - postgres
-    volumes:
-      - ./shared:/app/shared
-      - ./services/chat-service:/app/services/chat-service
+    # Volume mounts removed for production - code is copied into image during build
+    # For local development with hot-reload, uncomment:
+    # volumes:
+    #   - ./shared:/app/shared
+    #   - ./services/chat-service:/app/services/chat-service
     restart: unless-stopped
 volumes:
   postgres_data:
