@@ -23,24 +23,29 @@ services:
       context: .
       dockerfile: ./services/chat-service/Dockerfile
     environment:
-      # ✅ مهم‌ترین اصلاح: اتصال داخلی به سرویس postgres همین compose
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-ai_platform}
-
+      # Database: Use DATABASE_URL from env (external DB) or fallback to internal postgres
+      # For external DB: postgresql+asyncpg://user:pass@host:5432/dbname
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-ai_platform}}
+      
+      # LiteLLM Configuration
       LITELLM_API_KEY: ${LITELLM_API_KEY}
       LITELLM_BASE_URL: ${LITELLM_BASE_URL:-https://api.avalai.ir/v1}
       LITELLM_MODEL: ${LITELLM_MODEL:-gemini-2.5-flash-lite-preview-09-2025}
-
+      
+      # Session Configuration
       MAX_SESSION_MESSAGES: ${MAX_SESSION_MESSAGES:-30}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-14400}
-
-      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL:-}
-      LIGHTRAG_USERNAME: ${LIGHTRAG_USERNAME:-}
-      LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD:-}
-      LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE:-}
-      LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN:-}
+      
+      # LightRAG Configuration (optional - will be empty if not set)
+      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL}
+      LIGHTRAG_USERNAME: ${LIGHTRAG_USERNAME}
+      LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD}
+      LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE}
+      LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN}
+    # Only depend on postgres if using internal database (when DATABASE_URL not set)
+    # If using external database, remove this depends_on
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     restart: unless-stopped
 
   gateway:
