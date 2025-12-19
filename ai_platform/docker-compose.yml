@@ -1,16 +1,14 @@
 version: "3.8"
 
 services:
-  
-
   chat-service:
     build:
       context: .
       dockerfile: ./services/chat-service/Dockerfile
     environment:
-      # Database: Use DATABASE_URL from env (external DB) or fallback to internal postgres
-      # For external DB: postgresql+asyncpg://user:pass@host:5432/dbname
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-ai_platform}}
+      # Database: REQUIRED - must be set in Coolify environment variables
+      # Format: postgresql+asyncpg://user:pass@host:5432/dbname
+      DATABASE_URL: ${DATABASE_URL}
       
       # LiteLLM Configuration
       LITELLM_API_KEY: ${LITELLM_API_KEY}
@@ -27,10 +25,6 @@ services:
       LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD}
       LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE}
       LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN}
-    # Only depend on postgres if using internal database (when DATABASE_URL not set)
-    # If using external database, remove this depends_on
-    depends_on:
-      - postgres
     restart: unless-stopped
 
   gateway:
@@ -43,7 +37,3 @@ services:
       chat-service:
         condition: service_started
     restart: unless-stopped
-
-volumes:
-  postgres_data:
-    driver: local
