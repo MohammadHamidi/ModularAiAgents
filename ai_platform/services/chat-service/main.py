@@ -6,6 +6,7 @@ import json
 import time
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -17,7 +18,7 @@ from agents.translator_agent import TranslatorAgent
 from agents.litellm_compat import rewrite_service_tier
 from agents.config_loader import load_agent_config, UserDataField, ConfigLoader
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 # Import tools
 from tools.registry import ToolRegistry, DEFAULT_PERSONA_TOOLS
@@ -32,6 +33,15 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Chat Service")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # =============================================================================
@@ -155,7 +165,7 @@ async def startup():
     model_config = agent_full_config.model_config
     temperature = model_config.get("temperature", 0.7)
     max_turns = model_config.get("max_turns", 12)
-    
+
     # ==========================================================================
     # Initialize Tool Registry with available tools
     # ==========================================================================
@@ -173,9 +183,9 @@ async def startup():
     
     # Define which tools each persona can use
     persona_tool_assignments = {
-        "default": ["knowledge_base_search", "calculator", "get_weather"],
-        "tutor": ["knowledge_base_search", "calculator", "get_learning_resource"],
-        "professional": ["knowledge_base_search", "web_search", "get_company_info", "calculator"],
+        "default": ["knowledge_base_query", "calculator", "get_weather"],
+        "tutor": ["knowledge_base_query", "calculator", "get_learning_resource"],
+        "professional": ["knowledge_base_query", "web_search", "get_company_info", "calculator"],
         "minimal": [],  # Privacy-focused, no external tools
     }
     
@@ -235,7 +245,12 @@ async def startup():
         "temperature": 0.3,
         "extra": {
             **base_config,
-            "system_prompt": "You are a professional translator. Translate accurately and naturally."
+            "system_prompt": """You are a professional translator. Translate accurately and naturally. Preserve meaning, tone, and formatting.
+Do not add advice, suggestions, or extra content.
+
+هر پیام کاربر ممکن است با <internal_context>...</internal_context> شروع شود؛ از آن استفاده کن ولی هرگز در خروجی تکرار نکن.
+
+اگر مطمئن نیستی یا داده کافی نیست، حدس نزن. بگو «اطلاعات کافی ندارم»."""
         }
     })
     
@@ -337,6 +352,67 @@ async def get_tool_info(tool_name: str):
         "parameters": tool.parameters
     }
 
+def normalize_user_data(user_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize user_data from app format to context format.
+    Maps app field names to normalized context field names.
+    """
+    if not user_data:
+        return {}
+    
+    # Mapping from app field names to normalized context field names
+    field_mapping = {
+        # Personal Information (اطلاعات فردی)
+        "phone_number": "user_phone",
+        "شماره_همراه": "user_phone",
+        "full_name": "user_full_name",
+        "نام_و_نام_خانوادگی": "user_full_name",
+        "gender": "user_gender",
+        "جنسیت": "user_gender",
+        "birth_month": "user_birth_month",
+        "ماه_تولد": "user_birth_month",
+        "birth_year": "user_birth_year",
+        "سال_تولد": "user_birth_year",
+        
+        # Residence Information (اطلاعات محل سکونت)
+        "province": "user_province",
+        "استان": "user_province",
+        "city": "user_city",
+        "شهر": "user_city",
+        
+        # Activity Information (اطلاعات Activities)
+        "registered_actions": "user_registered_actions",
+        "کنش_ثبت_شده": "user_registered_actions",
+        "score": "user_score",
+        "امتیاز": "user_score",
+        "pending_reports": "user_pending_reports",
+        "در_انتظار_ثبت_گزارش": "user_pending_reports",
+        "level": "user_level",
+        "سطح_من": "user_level",
+        "my_actions": "user_my_actions",
+        "کنش_های_من": "user_my_actions",
+        "saved_actions": "user_saved_actions",
+        "کنش_های_ذخیره_شده": "user_saved_actions",
+        "saved_content": "user_saved_content",
+        "محتوای_ذخیره_شده": "user_saved_content",
+        "achievements": "user_achievements",
+        "دستاوردها": "user_achievements",
+    }
+    
+    normalized = {}
+    for key, value in user_data.items():
+        # Map to normalized field name
+        normalized_key = field_mapping.get(key, key)
+        
+        # Wrap value in standard format
+        if isinstance(value, (list, dict)):
+            normalized[normalized_key] = {"value": value}
+        else:
+            normalized[normalized_key] = {"value": value}
+    
+    return normalized
+
+
 @app.post("/chat/{agent_key}")
 async def chat(agent_key: str, request: AgentRequest):
     if agent_key not in AGENTS:
@@ -361,17 +437,37 @@ async def chat(agent_key: str, request: AgentRequest):
         data={
             "agent_key": agent_key,
             "has_session_id": bool(request.session_id),
+            "has_user_data": bool(request.user_data),
         },
     )
+
+    # ==========================================================================
+    # Save user_data immediately if provided
+    # ==========================================================================
+    if request.user_data:
+        normalized_user_data = normalize_user_data(request.user_data)
+        if normalized_user_data:
+            # Save immediately to context
+            await context_manager.merge_context(
+                sid,
+                normalized_user_data,
+                agent_type=agent_key
+            )
+            logging.info(f"Saved user_data for session {sid}: {list(normalized_user_data.keys())}")
 
     # Load session history
     session = await session_manager.get_session(sid)
     history = session["messages"] if session else []
 
-    # Load shared context
+    # Load shared context (includes any user_data just saved)
     shared_context = {}
     if request.use_shared_context:
         shared_context = await context_manager.get_context(sid) or {}
+        
+        # Also merge any additional user_data that wasn't saved yet
+        if request.user_data:
+            normalized_user_data = normalize_user_data(request.user_data)
+            shared_context.update(normalized_user_data)
 
     # Process with agent (history + structured shared context)
     request.session_id = str(sid)
@@ -431,6 +527,89 @@ async def get_session_context(session_id: str):
     
     context = await context_manager.get_context(sid)
     return {"session_id": session_id, "context": context or {}}
+
+
+@app.get("/session/{session_id}/user-data")
+async def get_session_user_data(session_id: str):
+    """
+    Get user data for a session in app format.
+    Returns user data normalized back to app field names.
+    """
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid session_id")
+    
+    context = await context_manager.get_context(sid) or {}
+    
+    # Reverse mapping: normalized -> app field names
+    reverse_mapping = {
+        "user_phone": "phone_number",
+        "user_full_name": "full_name",
+        "user_gender": "gender",
+        "user_birth_month": "birth_month",
+        "user_birth_year": "birth_year",
+        "user_province": "province",
+        "user_city": "city",
+        "user_registered_actions": "registered_actions",
+        "user_score": "score",
+        "user_pending_reports": "pending_reports",
+        "user_level": "level",
+        "user_my_actions": "my_actions",
+        "user_saved_actions": "saved_actions",
+        "user_saved_content": "saved_content",
+        "user_achievements": "achievements",
+        # Also include standard fields
+        "user_name": "name",
+        "user_age": "age",
+        "user_location": "location",
+        "user_occupation": "occupation",
+        "user_interests": "interests",
+        "preferred_language": "language",
+    }
+    
+    # Convert context back to app format
+    user_data = {}
+    for normalized_key, value_data in context.items():
+        app_key = reverse_mapping.get(normalized_key, normalized_key)
+        # Extract value from {"value": ...} format
+        if isinstance(value_data, dict) and "value" in value_data:
+            user_data[app_key] = value_data["value"]
+        else:
+            user_data[app_key] = value_data
+    
+    # Organize by categories
+    personal_info = {
+        "phone_number": user_data.get("phone_number"),
+        "full_name": user_data.get("full_name"),
+        "gender": user_data.get("gender"),
+        "birth_month": user_data.get("birth_month"),
+        "birth_year": user_data.get("birth_year"),
+    }
+    
+    residence_info = {
+        "province": user_data.get("province"),
+        "city": user_data.get("city"),
+    }
+    
+    activity_info = {
+        "registered_actions": user_data.get("registered_actions"),
+        "score": user_data.get("score"),
+        "pending_reports": user_data.get("pending_reports"),
+        "level": user_data.get("level"),
+        "my_actions": user_data.get("my_actions"),
+        "saved_actions": user_data.get("saved_actions"),
+        "saved_content": user_data.get("saved_content"),
+        "achievements": user_data.get("achievements"),
+    }
+    
+    return {
+        "session_id": session_id,
+        "personal_info": {k: v for k, v in personal_info.items() if v is not None},
+        "residence_info": {k: v for k, v in residence_info.items() if v is not None},
+        "activity_info": {k: v for k, v in activity_info.items() if v is not None},
+        "all_data": user_data  # Complete flat structure
+    }
 
 # =============================================================================
 # Dynamic Field Management API

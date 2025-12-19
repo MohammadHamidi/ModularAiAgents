@@ -22,6 +22,10 @@ COPY shared /app/shared
 # Copy service code
 COPY services/gateway /app/services/gateway
 
+# Copy static UI files (Chat.html, Icon.png, etc.)
+COPY Chat.html /app/Chat.html
+COPY Icon.png /app/Icon.png
+
 # Set working directory to service directory
 WORKDIR /app/services/gateway
 

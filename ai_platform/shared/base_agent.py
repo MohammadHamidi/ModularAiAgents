@@ -14,6 +14,7 @@ class AgentRequest(BaseModel):
     session_id: str | None = None
     context: Dict[str, Any] = {}  # Request-level context
     use_shared_context: bool = True  # Whether to load shared context
+    user_data: Dict[str, Any] = {}  # User data from app (saved immediately)
 
 class AgentResponse(BaseModel):
     session_id: str

@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>هوش مصنوعی سفیران آیه ها</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
+
+        * {
+            font-family: 'Vazirmatn', sans-serif;
+        }
+
+        /* ===== Motion ===== */
+        .message-enter {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .typing-indicator span {
+            animation: blink 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes blink {
+
+            0%,
+            60%,
+            100% {
+                opacity: 0.3;
+            }
+
+            30% {
+                opacity: 1;
+            }
+        }
+
+        /* ===== Screenshot-matched welcome bubble glow ===== */
+        .welcome-bubble {
+            position: relative;
+            border-radius: 18px;
+            background: #ffffff;
+            box-shadow: 0 10px 24px rgba(20, 20, 20, 0.10);
+            overflow: visible;
+            isolation: isolate;
+            /* ensures pseudo behind stays correct */
+        }
+
+        .welcome-bubble::after {
+            content: "";
+            position: absolute;
+            left: 14px;
+            right: 14px;
+            bottom: -12px;
+            height: 14px;
+            border-radius: 999px;
+            background: linear-gradient(90deg,
+                    #EAF8EF 0%,
+                    #B8E2D9 12%,
+                    #BADAF0 24%,
+                    #CDC8DE 36%,
+                    #E3B3C0 48%,
+                    #F4ABA8 58%,
+                    #F7CDA4 70%,
+                    #F3DBAD 80%,
+                    #E2C3C7 90%,
+                    #F0E3EF 100%);
+            filter: blur(6px);
+            opacity: 0.95;
+            z-index: -1;
+        }
+
+        /* Gradient behind helper text message */
+        .helper-message-gradient {
+            position: relative;
+            overflow: visible;
+        }
+
+        .helper-message-gradient::after {
+            content: "";
+            position: absolute;
+            left: 14px;
+            right: 14px;
+            bottom: -12px;
+            height: 14px;
+            border-radius: 999px;
+            background: linear-gradient(90deg,
+                    #EAF8EF 0%,
+                    #B8E2D9 12%,
+                    #BADAF0 24%,
+                    #CDC8DE 36%,
+                    #E3B3C0 48%,
+                    #F4ABA8 58%,
+                    #F7CDA4 70%,
+                    #F3DBAD 80%,
+                    #E2C3C7 90%,
+                    #F0E3EF 100%);
+            filter: blur(6px);
+            opacity: 0.95;
+            z-index: -1;
+        }
+
+        /* ===== Main card like screenshot ===== */
+        .widget-card {
+            background: #F9F9F9;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        /* Floating back button - using CSS gradient instead of images */
+        .back-btn {
+            width: 55px;
+            height: 55px;
+            border-radius: 999px;
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
+        }
+
+        /* Hide scrollbars completely */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        /* Chat container - hide scrollbar but allow scrolling */
+        #chatContainer {
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+        }
+
+        #chatContainer::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+        }
+
+        /* Suggestion buttons styling */
+        .suggestion-btn {
+            text-align: right;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .suggestion-btn:hover {
+            transform: translateX(-2px);
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+
+        /* Modal scrollbar */
+        #userDataModal .max-h-\[80vh\] {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+        }
+    </style>
+</head>
+
+<body class="bg-[#F5F5F5] h-screen overflow-hidden">
+    <div class="h-full flex flex-col max-w-[600px] mx-auto p-3">
+        <!-- Widget Card Container (screenshot look) -->
+        <div class="widget-card flex-1 flex flex-col relative">
+
+            <!-- Header (screenshot style) -->
+            <div class="h-[56px] flex items-center justify-center relative">
+                <h1 class="text-[16px] font-bold text-[#56555B]">هوش مصنوعی سفیران آیه ها</h1>
+
+                <!-- Logo (right) -->
+                <div class="absolute right-3 top-2 w-[44px] h-[44px] flex items-center justify-center">
+                    <img src="/ui/icon.png" alt="سفیران آیه ها" class="w-[44px] h-[44px] object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                    <div class="w-[44px] h-[44px] rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold text-[18px] hidden">
+                        س
+                    </div>
+                </div>
+
+                <!-- Agent Selector (visible) -->
+                <div class="absolute left-3 top-2">
+                    <select id="agentSelector" class="text-[11px] px-2 py-1 rounded-lg border border-gray-300 bg-white text-gray-700 focus:outline-none focus:border-blue-500">
+                        <option value="default">پیش‌فرض</option>
+                        <option value="tutor">معلم</option>
+                        <option value="professional">حرفه‌ای</option>
+                        <option value="minimal">ساده</option>
+                    </select>
+                </div>
+            </div>
+
+
+            <!-- Chat Container -->
+            <div id="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4 relative" style="scrollbar-width: none; -ms-overflow-style: none;">
+                <!-- Welcome UI injected by JS -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="bg-white border-t border-gray-200 p-4">
+                <div class="flex items-end gap-3">
+                    <textarea id="messageInput" rows="1" placeholder="سفیران آیه ها چیه؟ پلتفرمی هست و من اینجا میتونم چه کارهایی انجام بدم؟"
+                        class="flex-1 resize-none rounded-2xl border border-gray-300 px-4 py-3 text-[13px] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 overflow-hidden"
+                        style="min-height: 48px; max-height: 200px;"></textarea>
+                    
+                    <button id="sendButton"
+                        class="w-[50px] h-[50px] bg-[#4CAF50] hover:bg-[#45a049] disabled:bg-gray-300 rounded-full flex items-center justify-center shadow-md transition-all flex-shrink-0">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="mt-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2 flex-1 min-w-0">
+                            <span class="text-[11px] text-gray-500 flex-shrink-0">Session ID:</span>
+                            <span id="sessionIdDisplay" class="text-[11px] text-gray-700 font-mono truncate" title="">-</span>
+                        </div>
+                        <button id="userDataToggle" class="text-[11px] text-blue-600 hover:text-blue-700 flex-shrink-0">
+                            اطلاعات کاربری را ارسال کنم
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="sessionIdInput" placeholder="وارد کردن Session ID برای اتصال"
+                            class="flex-1 text-[11px] px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono">
+                        <button id="connectSessionButton" 
+                            class="text-[11px] px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0">
+                            اتصال
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Data Modal -->
+    <div id="userDataModal"
+        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6">
+            <h2 class="text-[16px] font-semibold mb-4">اطلاعات کاربری</h2>
+
+            <div class="space-y-4">
+                <!-- اطلاعات فردی -->
+                <div class="border-b pb-3 mb-3">
+                    <h3 class="text-[13px] font-semibold text-gray-800 mb-2">اطلاعات فردی</h3>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">نام و نام خانوادگی</label>
+                            <input type="text" id="fullName"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">شماره همراه</label>
+                            <input type="text" id="phoneNumber" placeholder="09123456789"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">جنسیت</label>
+                            <select id="gender" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                <option value="">انتخاب کنید</option>
+                                <option value="male">مرد</option>
+                                <option value="female">زن</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[12px] text-gray-700 mb-1">ماه تولد</label>
+                                <input type="number" id="birthMonth" min="1" max="12" placeholder="1-12"
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                            </div>
+                            <div>
+                                <label class="block text-[12px] text-gray-700 mb-1">سال تولد</label>
+                                <input type="number" id="birthYear" min="1300" max="1410" placeholder="1400"
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- اطلاعات محل سکونت -->
+                <div class="border-b pb-3 mb-3">
+                    <h3 class="text-[13px] font-semibold text-gray-800 mb-2">اطلاعات محل سکونت</h3>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">استان</label>
+                            <input type="text" id="province"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">شهر</label>
+                            <input type="text" id="city" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- اطلاعات Activities -->
+                <div>
+                    <h3 class="text-[13px] font-semibold text-gray-800 mb-2">اطلاعات Activities</h3>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">کنش ثبت شده</label>
+                            <input type="number" id="registeredActions" min="0" placeholder="0"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">امتیاز</label>
+                            <input type="number" id="score" min="0" placeholder="0"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">در انتظار ثبت گزارش</label>
+                            <input type="number" id="pendingReports" min="0" placeholder="0"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                        </div>
+
+                        <div>
+                            <label class="block text-[12px] text-gray-700 mb-1">سطح</label>
+                            <select id="level" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                <option value="">انتخاب کنید</option>
+                                <option value="beginner">مبتدی</option>
+                                <option value="intermediate">متوسط</option>
+                                <option value="advanced">پیشرفته</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button id="saveUserData"
+                    class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-[13px] hover:bg-blue-700">
+                    ذخیره
+                </button>
+                <button id="cancelUserData"
+                    class="flex-1 bg-gray-200 text-gray-700 rounded-lg py-2.5 text-[13px] hover:bg-gray-300">
+                    انصراف
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class SafiranAIClient {
+            constructor(baseUrl = null) {
+                // Auto-detect base URL: if running on same domain, use relative path; otherwise use provided or default
+                if (!baseUrl) {
+                    // If we're served from /ui, the API should be at the root (gateway forwards to chat-service)
+                    const currentPath = window.location.pathname;
+                    if (currentPath.startsWith('/ui')) {
+                        // We're on /ui, so API is at root (gateway will forward)
+                        this.baseUrl = window.location.origin;
+                    } else {
+                        // Fallback for local development
+                        this.baseUrl = 'http://localhost:8000';
+                    }
+                } else {
+                    this.baseUrl = baseUrl;
+                }
+                this.sessionId = null;
+                this.userData = {};
+            }
+
+            async sendMessage(message, agentKey = 'default') {
+                // Use the baseUrl which is already set correctly (window.location.origin when on /ui)
+                const response = await fetch(`${this.baseUrl}/chat/${agentKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        session_id: this.sessionId,
+                        use_shared_context: true,
+                        user_data: this.userData
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+
+                if (!this.sessionId) this.sessionId = data.session_id;
+                return data;
+            }
+
+            setSessionId(sessionId) {
+                this.sessionId = sessionId;
+            }
+
+            setUserData(userData) {
+                this.userData = {
+                    phone_number: userData.phoneNumber,
+                    full_name: userData.fullName,
+                    gender: userData.gender,
+                    birth_month: userData.birthMonth ? parseInt(userData.birthMonth) : undefined,
+                    birth_year: userData.birthYear ? parseInt(userData.birthYear) : undefined,
+                    province: userData.province,
+                    city: userData.city,
+                    registered_actions: userData.registeredActions ? parseInt(userData.registeredActions) : undefined,
+                    score: userData.score ? parseInt(userData.score) : undefined,
+                    pending_reports: userData.pendingReports ? parseInt(userData.pendingReports) : undefined,
+                    level: userData.level,
+                };
+                Object.keys(this.userData).forEach(k => this.userData[k] === undefined && delete this.userData[k]);
+            }
+
+            newSession() { 
+                this.sessionId = null;
+            }
+        }
+
+        const aiClient = new SafiranAIClient();
+
+        // DOM
+        const chatContainer = document.getElementById('chatContainer');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const agentSelector = document.getElementById('agentSelector');
+        const userDataModal = document.getElementById('userDataModal');
+        const userDataToggle = document.getElementById('userDataToggle');
+        const sessionIdDisplay = document.getElementById('sessionIdDisplay');
+        const sessionIdInput = document.getElementById('sessionIdInput');
+        const connectSessionButton = document.getElementById('connectSessionButton');
+
+        // ===== Welcome UI (matches screenshot) =====
+        const WELCOME_QUESTION = "سفیران آیه ها چیه؟ پلتفرمی هست و من اینجا میتونم چه کارهایی انجام بدم؟";
+        const WELCOME_HELPER = "هر سوالی که در رابطه با انجام کنش ها یا حتی تولید محتوا داشته باشید می توانید از دستیار هوش مصنوعی سفیران بپرسید";
+
+        function renderWelcome() {
+            chatContainer.innerHTML = `
+        <div class="space-y-3 pt-2">
+          <div class="welcome-bubble p-4 cursor-pointer" id="welcomeBubble">
+            <p class="text-[14px] leading-[1.9] text-[#B7B7B9] text-right">
+              ${escapeHtml(WELCOME_QUESTION)}
+            </p>
+          </div>
+
+          <div class="helper-message-gradient relative">
+            <p class="text-[13px] leading-[1.8] text-[#A5A5A7] text-right px-2 py-2 bg-white rounded-lg">
+              ${escapeHtml(WELCOME_HELPER)}
+            </p>
+          </div>
+        </div>
+      `;
+
+            const wb = document.getElementById('welcomeBubble');
+            wb?.addEventListener('click', () => {
+                messageInput.value = WELCOME_QUESTION;
+                messageInput.focus();
+                autoResizeTextarea();
+            });
+        }
+
+        // Auto-resize textarea - expand without scrolling
+        function autoResizeTextarea() {
+            messageInput.style.height = 'auto';
+            const scrollHeight = messageInput.scrollHeight;
+            const maxHeight = 200; // max-height from CSS
+            messageInput.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+            
+            // If content exceeds max height, allow scrolling only within textarea
+            if (scrollHeight > maxHeight) {
+                messageInput.style.overflowY = 'auto';
+            } else {
+                messageInput.style.overflowY = 'hidden';
+            }
+        }
+        messageInput.addEventListener('input', autoResizeTextarea);
+        
+        // Also resize on paste
+        messageInput.addEventListener('paste', () => {
+            setTimeout(autoResizeTextarea, 10);
+        });
+
+        // Add message to chat
+        function addMessage(text, isUser = false) {
+            // If we're still showing the welcome, clear it once real chat starts
+            const welcomeBubble = document.getElementById('welcomeBubble');
+            if (welcomeBubble) chatContainer.innerHTML = '';
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message-enter';
+
+            if (isUser) {
+                messageDiv.innerHTML = `
+          <div class="flex justify-start mb-2">
+            <div class="bg-blue-500 text-white rounded-[20px] rounded-tr-[6px] p-4 max-w-[85%] shadow-sm">
+              <p class="text-[13px] leading-[1.8] whitespace-pre-wrap">${escapeHtml(text)}</p>
+            </div>
+          </div>
+        `;
+            } else {
+                // Parse suggestions section if present
+                const suggestionsMatch = text.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
+                let mainText = text;
+                let suggestionsHtml = '';
+                
+                if (suggestionsMatch) {
+                    mainText = text.substring(0, suggestionsMatch.index).trim();
+                    const suggestionsText = suggestionsMatch[1].trim();
+                    // Match numbered suggestions (1) ... 2) ... etc.
+                    const suggestions = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => {
+                        // Remove the number prefix
+                        return s.replace(/^\d+\)\s*/, '').trim();
+                    });
+                    
+                    if (suggestions.length > 0) {
+                        suggestionsHtml = `
+              <div class="mt-4 pt-4 border-t border-gray-200">
+                <p class="text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p>
+                <div class="space-y-2">
+                  ${suggestions.map((s, idx) => `
+                    <button class="suggestion-btn w-full text-right text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(s)}">
+                      ${idx + 1}) ${escapeHtml(s)}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+                    }
+                }
+                
+                // Handle Sources citation if present
+                let sourcesHtml = '';
+                const sourcesMatch = mainText.match(/Sources:\s*([^\n]+)/);
+                if (sourcesMatch) {
+                    const sourcesText = sourcesMatch[0];
+                    mainText = mainText.replace(sourcesMatch[0], '').trim();
+                    sourcesHtml = `<div class="mt-3 pt-3 border-t border-gray-100"><p class="text-[11px] text-gray-500">${escapeHtml(sourcesText)}</p></div>`;
+                }
+                
+                messageDiv.innerHTML = `
+          <div class="flex justify-end mb-2">
+            <div class="bg-white rounded-[20px] rounded-tl-[6px] p-4 max-w-[85%] shadow-sm">
+              <div class="text-[13px] leading-[1.8] text-[#4a4a4a] whitespace-pre-wrap">${escapeHtml(mainText)}</div>
+              ${sourcesHtml}
+              ${suggestionsHtml}
+            </div>
+          </div>
+        `;
+                
+                // Add click handlers for suggestions
+                messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const suggestion = btn.getAttribute('data-suggestion');
+                        messageInput.value = suggestion;
+                        messageInput.focus();
+                        autoResizeTextarea();
+                        sendMessage();
+                    });
+                });
+            }
+
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Typing indicator
+        function showTyping() {
+            const typingDiv = document.createElement('div');
+            typingDiv.id = 'typingIndicator';
+            typingDiv.className = 'flex justify-end';
+            typingDiv.innerHTML = `
+        <div class="bg-white rounded-[20px] rounded-tl-[6px] px-5 py-4 shadow-sm">
+          <div class="typing-indicator flex gap-1">
+            <span class="w-2 h-2 bg-gray-400 rounded-full"></span>
+            <span class="w-2 h-2 bg-gray-400 rounded-full"></span>
+            <span class="w-2 h-2 bg-gray-400 rounded-full"></span>
+          </div>
+        </div>
+      `;
+            chatContainer.appendChild(typingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function hideTyping() {
+            document.getElementById('typingIndicator')?.remove();
+        }
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            const currentAgent = agentSelector.value || 'default';
+
+            addMessage(message, true);
+            messageInput.value = '';
+            messageInput.style.height = '48px'; // Reset to min-height
+            messageInput.style.overflowY = 'hidden';
+            sendButton.disabled = true;
+
+            showTyping();
+
+            try {
+                const response = await aiClient.sendMessage(message, currentAgent);
+                hideTyping();
+                addMessage(response.output, false);
+                
+                // Update session ID display (show full ID)
+                if (response.session_id) {
+                    sessionIdDisplay.textContent = response.session_id;
+                    sessionIdDisplay.title = response.session_id;
+                    // Also update the input field
+                    if (sessionIdInput) {
+                        sessionIdInput.value = response.session_id;
+                    }
+                }
+            } catch (error) {
+                hideTyping();
+                addMessage('خطا در ارتباط با سرور. لطفا دوباره تلاش کنید.', false);
+            } finally {
+                sendButton.disabled = false;
+            }
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // User data modal
+        userDataToggle.addEventListener('click', () => userDataModal.classList.remove('hidden'));
+        document.getElementById('cancelUserData').addEventListener('click', () => userDataModal.classList.add('hidden'));
+        document.getElementById('saveUserData').addEventListener('click', () => {
+            const userData = {
+                fullName: document.getElementById('fullName').value,
+                phoneNumber: document.getElementById('phoneNumber').value,
+                gender: document.getElementById('gender').value,
+                birthMonth: document.getElementById('birthMonth').value,
+                birthYear: document.getElementById('birthYear').value,
+                province: document.getElementById('province').value,
+                city: document.getElementById('city').value,
+                registeredActions: document.getElementById('registeredActions').value,
+                score: document.getElementById('score').value,
+                pendingReports: document.getElementById('pendingReports').value,
+                level: document.getElementById('level').value,
+            };
+            aiClient.setUserData(userData);
+            userDataModal.classList.add('hidden');
+
+            const hasData = Object.values(userData).some(v => v);
+            userDataToggle.textContent = hasData ? '✓ اطلاعات کاربری ذخیره شد' : 'اطلاعات کاربری را ارسال کنم';
+            userDataToggle.classList.toggle('text-green-600', hasData);
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Wrap newSession to update session ID display
+        const originalNewSession = aiClient.newSession.bind(aiClient);
+        aiClient.newSession = function() {
+            originalNewSession();
+            if (sessionIdDisplay) {
+                sessionIdDisplay.textContent = '-';
+            }
+            if (sessionIdInput) {
+                sessionIdInput.value = '';
+            }
+        };
+
+        // Connect to existing session
+        function connectToSession() {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) {
+                alert('لطفاً Session ID را وارد کنید');
+                return;
+            }
+            
+            // Validate session ID format (UUID-like)
+            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!uuidPattern.test(sessionId)) {
+                alert('فرمت Session ID نامعتبر است. لطفاً یک Session ID معتبر وارد کنید.');
+                return;
+            }
+            
+            // Set the session ID
+            aiClient.sessionId = sessionId;
+            sessionIdDisplay.textContent = sessionId;
+            sessionIdDisplay.title = sessionId;
+            
+            // Clear chat and show welcome
+            chatContainer.innerHTML = '';
+            renderWelcome();
+            
+            // Show success message
+            const successMsg = document.createElement('div');
+            successMsg.className = 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 text-[12px] message-enter';
+            successMsg.textContent = `✓ به Session ${sessionId.substring(0, 8)}... متصل شدید`;
+            chatContainer.appendChild(successMsg);
+            setTimeout(() => successMsg.remove(), 3000);
+        }
+
+        // Event listeners for session connection
+        if (connectSessionButton) {
+            connectSessionButton.addEventListener('click', connectToSession);
+        }
+        if (sessionIdInput) {
+            sessionIdInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    connectToSession();
+                }
+            });
+        }
+
+        // Initial render
+        renderWelcome();
+        messageInput.focus();
+    </script>
+</body>
+
+</html>

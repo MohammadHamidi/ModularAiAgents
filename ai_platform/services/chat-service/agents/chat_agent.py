@@ -79,7 +79,7 @@ Returns:
     async def initialize(self, http_client: httpx.AsyncClient | None = None):
         # Use provided http_client or create a new one
         client = http_client or create_litellm_compatible_client()
-        
+
         # Store the client reference for reinitialization
         self._stored_http_client = client
 
@@ -167,10 +167,31 @@ Returns:
             calc_tool.__doc__ = full_doc
             self.agent.tool(calc_tool)
             
-        elif tool.name == "knowledge_base_search":
-            async def kb_tool(ctx: RunContext[ChatDependencies], query: str, category: str = None) -> str:
-                """Search the knowledge base."""
-                result = await tool_ref.execute(query=query, category=category)
+        elif tool.name == "knowledge_base_query":
+            async def kb_tool(
+            ctx: RunContext[ChatDependencies],
+                query: str,
+                mode: str = "mix",
+                include_references: bool = True,
+                include_chunk_content: bool = False,
+                response_type: str = "Multiple Paragraphs",
+                top_k: int = 10,
+                chunk_top_k: int = 8,
+                max_total_tokens: int = 6000,
+                conversation_history: list = None
+        ) -> str:
+                """Query the LightRAG knowledge base."""
+                result = await tool_ref.execute(
+                    query=query,
+                    mode=mode,
+                    include_references=include_references,
+                    include_chunk_content=include_chunk_content,
+                    response_type=response_type,
+                    top_k=top_k,
+                    chunk_top_k=chunk_top_k,
+                    max_total_tokens=max_total_tokens,
+                    conversation_history=conversation_history
+                )
                 ctx.deps.tool_results[tool_ref.name] = result
                 return result
             kb_tool.__doc__ = full_doc
@@ -431,6 +452,47 @@ Returns:
             parts.append("\n".join(context_lines))
 
         return "\n\n".join(parts)
+    
+    def _convert_suggestions_to_user_perspective(self, output: str) -> str:
+        """Convert any AI-perspective suggestions in the output to user perspective."""
+        # Find the suggestions section
+        suggestions_match = re.search(r'پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)', output)
+        if not suggestions_match:
+            return output
+        
+        suggestions_text = suggestions_match.group(1)
+        original_suggestions = suggestions_text.strip()
+        
+        # Split into individual suggestions (numbered)
+        suggestions = re.split(r'\n\s*\d+\)\s*', original_suggestions)
+        suggestions = [s.strip() for s in suggestions if s.strip()]
+        
+        # Convert each suggestion
+        converted_suggestions = []
+        for suggestion in suggestions:
+            converted = self._convert_to_user_perspective(suggestion)
+            converted_suggestions.append(converted)
+        
+        # Rebuild the suggestions section
+        new_suggestions_text = "\n".join([f"{i}) {s}" for i, s in enumerate(converted_suggestions, 1)])
+        
+        # Replace in output
+        new_output = output[:suggestions_match.start(1)] + new_suggestions_text + output[suggestions_match.end(1):]
+        
+        return new_output
+    
+    def _is_greeting(self, message: str) -> bool:
+        """Check if message is a simple greeting that doesn't need KB query."""
+        greetings = ["سلام", "خداحافظ", "خدا حافظ", "hi", "hello", "bye", "goodbye", "صبح بخیر", "عصر بخیر", "شب بخیر"]
+        message_lower = message.strip().lower()
+        # Check if message is exactly a greeting or starts with one
+        if message_lower in greetings:
+            return True
+        # Check if message starts with a greeting followed by punctuation or space
+        for greeting in greetings:
+            if message_lower.startswith(greeting) and len(message_lower) <= len(greeting) + 2:
+                return True
+        return False
 
     async def process(
         self,
@@ -473,12 +535,19 @@ Returns:
         # Build user message with context prepended for better recall
         # Use a format that's clearly internal and won't be repeated by the model
         user_message = request.message
+        
+        # Add KB instruction for ALL questions (except greetings)
+        # KB-first approach: Always query KB first for every question
+        if not self._is_greeting(user_message):
+            kb_instruction = "\n<system_note>این سوال کاربر است. حتماً ابتدا از knowledge_base_query استفاده کن و سپس بر اساس نتایج KB پاسخ بده. اگر KB نتیجه نداد، آنگاه پاسخ عمومی بده.</system_note>"
+            user_message = user_message + kb_instruction
+        
         if shared_context:
             context_summary = self._build_context_summary(shared_context)
             if context_summary:
                 # Format: Hidden context that model should use but NEVER repeat
-                user_message = f"<internal_context>{context_summary}</internal_context>\n{request.message}"
-        
+                user_message = f"<internal_context>{context_summary}</internal_context>\n{user_message}"
+
         # Run the agent with tool support
         result = await self.agent.run(
             user_message,
@@ -486,6 +555,16 @@ Returns:
             deps=deps,
         )
         assistant_output = result.output
+        
+        # Post-process: Convert AI-perspective suggestions to user perspective
+        assistant_output = self._convert_suggestions_to_user_perspective(assistant_output)
+        
+        # Post-process: Ensure suggestions section is always present
+        assistant_output = self._ensure_suggestions_section(
+            assistant_output,
+            deps.tool_results,
+            request.message
+        )
 
         # Append latest turn to history
         updated_history: List[Dict[str, Any]] = history.copy() if history else []
@@ -520,6 +599,153 @@ Returns:
             metadata=metadata,
             context_updates=context_updates_combined,
         )
+
+    def _ensure_suggestions_section(
+        self,
+        output: str,
+        tool_results: Dict[str, Any],
+        user_message: str
+    ) -> str:
+        """
+        Ensure the output always includes a suggestions section.
+        If missing, generate contextual suggestions based on KB content or user query.
+        """
+        # Check if suggestions section already exists
+        suggestions_patterns = [
+            r"پیشنهادهای بعدی:",
+            r"Next actions:",
+            r"پیشنهادهای بعدی\s*:",
+            r"Next actions\s*:",
+        ]
+        
+        has_suggestions = any(re.search(pattern, output, re.IGNORECASE) for pattern in suggestions_patterns)
+        
+        if has_suggestions:
+            return output
+        
+        # Generate contextual suggestions
+        suggestions = []
+        
+        # Check if KB was queried
+        kb_result = tool_results.get("knowledge_base_query")
+        if kb_result:
+            # Extract concepts from KB result to generate contextual suggestions
+            kb_text = str(kb_result).lower()
+            
+            # Extract specific topics mentioned in KB
+            mentioned_topics = []
+            if "کنش" in kb_text:
+                # Extract specific action types mentioned
+                if "مدرسه" in kb_text:
+                    mentioned_topics.append("کنش‌های مدرسه")
+                if "خانه" in kb_text or "خانگی" in kb_text:
+                    mentioned_topics.append("کنش‌های خانه")
+                if "مسجد" in kb_text:
+                    mentioned_topics.append("کنش‌های مسجد")
+                if "فضای مجازی" in kb_text or "مجازی" in kb_text:
+                    mentioned_topics.append("کنش‌های فضای مجازی")
+            
+            # Generate specific suggestions based on what was mentioned (from user's perspective)
+            if mentioned_topics:
+                # Suggest topics that weren't mentioned (user perspective)
+                all_topics = ["کنش‌های مدرسه", "کنش‌های خانه", "کنش‌های مسجد", "کنش‌های فضای مجازی"]
+                unmentioned = [t for t in all_topics if t not in mentioned_topics]
+                if unmentioned:
+                    suggestions.append(f"درباره {unmentioned[0]} بیشتر بدانم")
+            
+            # If actions were mentioned, suggest starting one (user perspective)
+            if "کنش" in kb_text:
+                suggestions.append("چطور یک کنش رو شروع کنم؟")
+            
+            # If verses were mentioned, suggest related verses (user perspective)
+            if "آیه" in kb_text:
+                # Try to extract verse numbers if mentioned
+                verse_numbers = re.findall(r'آیه\s*(\d+)', kb_text)
+                if verse_numbers:
+                    suggestions.append(f"درباره آیه {verse_numbers[0]} بیشتر بدانم")
+                else:
+                    suggestions.append("آیه‌های مرتبط")
+            
+            # If ambassador role was mentioned, suggest action details (user perspective)
+            if "سفیر" in kb_text:
+                suggestions.append("نحوه انجام کنش‌ها به عنوان سفیر")
+            
+            # Generic KB-based suggestions if we don't have enough (user perspective)
+            if len(suggestions) < 2:
+                # Extract any key terms from KB
+                key_terms = []
+                if "محفل" in kb_text:
+                    key_terms.append("محافل")
+                if "کلیپ" in kb_text:
+                    key_terms.append("کلیپ آیه")
+                if "گزارش" in kb_text:
+                    key_terms.append("ثبت گزارش کنش")
+                
+                if key_terms:
+                    suggestions.append(f"درباره {key_terms[0]} بیشتر بدانم")
+                else:
+                    suggestions.append("موضوعات مرتبط")
+        
+        # Add default suggestions if we don't have enough KB-based ones (user perspective)
+        if len(suggestions) < 2:
+            # Analyze user message for topic
+            user_lower = user_message.lower()
+            if "آیه" in user_lower:
+                suggestions.append("آیه‌های مرتبط")
+                suggestions.append("شروع کنش مرتبط")
+            elif "کنش" in user_lower:
+                suggestions.append("آیه‌های مرتبط با این کنش‌ها")
+                suggestions.append("چطور این کنش رو انجام دهم؟")
+            else:
+                suggestions.append("موضوعات مرتبط")
+                suggestions.append("ادامه")
+        
+        # Ensure we have 2-4 suggestions (user perspective)
+        while len(suggestions) < 2:
+            suggestions.append("سوالات بیشتر")
+        
+        # Limit to 4 suggestions
+        suggestions = suggestions[:4]
+        
+        # Convert any AI-perspective suggestions to user perspective
+        converted_suggestions = []
+        for suggestion in suggestions:
+            converted = self._convert_to_user_perspective(suggestion)
+            converted_suggestions.append(converted)
+        
+        # Format suggestions section
+        suggestions_text = "\n\nپیشنهادهای بعدی:\n"
+        for i, suggestion in enumerate(converted_suggestions, 1):
+            suggestions_text += f"{i}) {suggestion}\n"
+        
+        return output + suggestions_text
+    
+    def _convert_to_user_perspective(self, suggestion: str) -> str:
+        """Convert AI-perspective suggestions to user perspective."""
+        # Remove AI-perspective phrases
+        suggestion = suggestion.strip()
+        
+        # Pattern: "میخوای درباره X بدونی؟" → "درباره X بیشتر بدانم" or "X"
+        suggestion = re.sub(r'میخوای\s+درباره\s+(.+?)\s+بیشتر\s+بدونی\?', r'درباره \1 بیشتر بدانم', suggestion, flags=re.IGNORECASE)
+        suggestion = re.sub(r'میخوای\s+درباره\s+(.+?)\s+بدونی\?', r'درباره \1 بیشتر بدانم', suggestion, flags=re.IGNORECASE)
+        suggestion = re.sub(r'آیا\s+می‌خوای\s+(.+?)\s+رو\s+ببینی\?', r'\1', suggestion, flags=re.IGNORECASE)
+        suggestion = re.sub(r'میخوای\s+(.+?)\s+رو\s+ببینی\?', r'\1', suggestion, flags=re.IGNORECASE)
+        
+        # Pattern: "چطور می‌خوای X کنی؟" → "چطور X کنم؟"
+        suggestion = re.sub(r'چطور\s+می‌خوای\s+(.+?)\s+کنی\?', r'چطور \1 کنم؟', suggestion, flags=re.IGNORECASE)
+        suggestion = re.sub(r'چطور\s+می‌خوای\s+(.+?)\s+شروع\s+کنی\?', r'چطور \1 را شروع کنم؟', suggestion, flags=re.IGNORECASE)
+        suggestion = re.sub(r'چطور\s+می‌خوای\s+یک\s+(.+?)\s+رو\s+شروع\s+کنی\?', r'چطور یک \1 را شروع کنم؟', suggestion, flags=re.IGNORECASE)
+        
+        # Pattern: "میخوای X" → "X"
+        suggestion = re.sub(r'^میخوای\s+(.+?)\?', r'\1', suggestion, flags=re.IGNORECASE)
+        
+        # Pattern: "درباره نحوه انجام X به عنوان Y" → "نحوه انجام X به عنوان Y"
+        suggestion = re.sub(r'درباره\s+نحوه\s+انجام\s+(.+?)\s+به\s+عنوان\s+(.+?)\s+بیشتر\s+بدونی\?', r'نحوه انجام \1 به عنوان \2', suggestion, flags=re.IGNORECASE)
+        
+        # Clean up extra spaces
+        suggestion = re.sub(r'\s+', ' ', suggestion).strip()
+        
+        return suggestion
 
     def get_capabilities(self) -> list[str]:
         return ["chat", "conversation", "qa", "user_context_extraction", "configurable"]

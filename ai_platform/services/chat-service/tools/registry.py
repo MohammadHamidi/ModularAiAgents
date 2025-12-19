@@ -78,9 +78,9 @@ class ToolRegistry:
 
 # Default tool assignments for personas
 DEFAULT_PERSONA_TOOLS = {
-    "default": ["knowledge_base_search", "calculator"],
-    "tutor": ["knowledge_base_search", "calculator", "get_learning_resource"],
-    "professional": ["knowledge_base_search", "web_search", "get_company_info"],
+    "default": ["knowledge_base_query", "calculator"],
+    "tutor": ["knowledge_base_query", "calculator", "get_learning_resource"],
+    "professional": ["knowledge_base_query", "web_search", "get_company_info"],
     "minimal": [],  # Privacy-focused, no external tools
 }
 
