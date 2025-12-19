@@ -4,17 +4,17 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: ai_platform
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ai_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+    # Port mapping removed - Coolify manages ports automatically
+    # PostgreSQL is internal only, accessed via Docker network
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d ai_platform"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-ai_platform}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,8 +25,8 @@ services:
       dockerfile: ./services/gateway/Dockerfile
     environment:
       CHAT_SERVICE_URL: http://chat-service:8001
-    ports:
-      - "8000:8000"
+    # Port mapping removed - Coolify manages ports automatically
+    # If running locally, uncomment: ports: - "8000:8000"
     depends_on:
       - chat-service
     volumes:
@@ -50,8 +50,8 @@ services:
       LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD:-}
       LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE:-}
       LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN:-}
-    ports:
-      - "8001:8001"
+    # Port mapping removed - chat-service is internal only, accessed via Docker network
+    # If running locally, uncomment: ports: - "8001:8001"
     depends_on:
       - postgres
     volumes:
