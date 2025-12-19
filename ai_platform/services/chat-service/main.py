@@ -510,7 +510,12 @@ async def chat(agent_key: str, request: AgentRequest):
     # Load shared context (includes any user_data just saved)
     shared_context = {}
     if request.use_shared_context:
-        shared_context = await context_manager.get_context(sid) or {}
+        try:
+            shared_context = await context_manager.get_context(sid) or {}
+        except Exception as e:
+            logging.error(f"Database connection error when loading context for session {sid}: {e}")
+            logging.warning("Continuing with empty context due to database error")
+            shared_context = {}
         
         # Also merge any additional user_data that wasn't saved yet
         if request.user_data:
