@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
 
 from shared.database import SessionManager
 from shared.context_manager import ContextManager
@@ -136,10 +137,46 @@ async def startup():
     
     # Initialize managers
     db_url = os.getenv("DATABASE_URL")
-    engine = create_async_engine(db_url, pool_pre_ping=True)
     
-    session_manager = SessionManager(db_url)
-    context_manager = ContextManager(engine)
+    # Validate DATABASE_URL
+    if not db_url:
+        logging.error("DATABASE_URL environment variable is not set!")
+        logging.error("Please set DATABASE_URL in Coolify environment variables.")
+        logging.error("Format: postgresql+asyncpg://user:pass@host:5432/dbname")
+        raise ValueError("DATABASE_URL is required but not set")
+    
+    # Validate DATABASE_URL format
+    if not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
+        logging.warning(f"DATABASE_URL format may be incorrect: {db_url[:50]}...")
+        logging.warning("Expected format: postgresql+asyncpg://user:pass@host:5432/dbname")
+    
+    try:
+        engine = create_async_engine(db_url, pool_pre_ping=True)
+        session_manager = SessionManager(db_url)
+        context_manager = ContextManager(engine)
+        
+        # Test database connection on startup
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            logging.info("Database connection test successful")
+        except Exception as conn_error:
+            logging.error(f"Database connection test failed: {conn_error}")
+            logging.error("Service will start but database operations may fail")
+            logging.error("Please verify:")
+            logging.error("  1. DATABASE_URL is correct")
+            logging.error("  2. Database host is reachable from the container")
+            logging.error("  3. Database credentials are correct")
+            logging.error("  4. Database exists and is accessible")
+            # Don't raise - allow service to start, but log the issue
+            # Runtime errors will be handled gracefully in request handlers
+        
+        logging.info("Database connection initialized (with warnings if connection test failed)")
+    except Exception as e:
+        logging.error(f"Failed to initialize database connection: {e}")
+        logging.error(f"DATABASE_URL: {db_url[:50]}..." if len(db_url) > 50 else f"DATABASE_URL: {db_url}")
+        logging.error("Please verify DATABASE_URL is correct and the database is accessible")
+        raise
     
     # Create global httpx client with LiteLLM compatibility hook
     http_client = httpx.AsyncClient(event_hooks={"response": [rewrite_service_tier]})
@@ -448,16 +485,27 @@ async def chat(agent_key: str, request: AgentRequest):
         normalized_user_data = normalize_user_data(request.user_data)
         if normalized_user_data:
             # Save immediately to context
-            await context_manager.merge_context(
-                sid,
-                normalized_user_data,
-                agent_type=agent_key
-            )
-            logging.info(f"Saved user_data for session {sid}: {list(normalized_user_data.keys())}")
+            try:
+                await context_manager.merge_context(
+                    sid,
+                    normalized_user_data,
+                    agent_type=agent_key
+                )
+                logging.info(f"Saved user_data for session {sid}: {list(normalized_user_data.keys())}")
+            except Exception as e:
+                logging.error(f"Database connection error when saving user_data for session {sid}: {e}")
+                logging.warning("User data not persisted due to database error, but continuing with request")
 
     # Load session history
-    session = await session_manager.get_session(sid)
-    history = session["messages"] if session else []
+    try:
+        session = await session_manager.get_session(sid)
+        history = session["messages"] if session else []
+    except Exception as e:
+        logging.error(f"Database connection error when loading session {sid}: {e}")
+        # Continue with empty history if database is unavailable
+        # This allows the service to work even if database has temporary issues
+        history = []
+        logging.warning("Continuing with empty history due to database error")
 
     # Load shared context (includes any user_data just saved)
     shared_context = {}
@@ -486,20 +534,29 @@ async def chat(agent_key: str, request: AgentRequest):
     
     # Save context updates
     if response.context_updates:
-        await context_manager.merge_context(
-            sid, 
-            response.context_updates, 
-            agent_type=agent_key
-        )
+        try:
+            await context_manager.merge_context(
+                sid, 
+                response.context_updates, 
+                agent_type=agent_key
+            )
+        except Exception as e:
+            logging.error(f"Database connection error when saving context for session {sid}: {e}")
+            logging.warning("Context not persisted due to database error, but response sent successfully")
     
     # Save session (agent should return updated history in metadata)
     new_history = response.metadata.get("history", history)
-    await session_manager.upsert_session(
-        sid, 
-        new_history, 
-        agent_key,
-        metadata={"last_agent": agent_key}
-    )
+    try:
+        await session_manager.upsert_session(
+            sid, 
+            new_history, 
+            agent_key,
+            metadata={"last_agent": agent_key}
+        )
+    except Exception as e:
+        logging.error(f"Database connection error when saving session {sid}: {e}")
+        # Log but don't fail the request - user still gets their response
+        logging.warning("Session not persisted due to database error, but response sent successfully")
     
     return response
 
