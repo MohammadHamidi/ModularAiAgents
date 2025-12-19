@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
@@ -7,17 +7,41 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ai_platform}
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
-    # Port mapping removed - Coolify manages ports automatically
-    # PostgreSQL is internal only, accessed via Docker network
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # اگر init.sql داری نگه دار، اگر نداری این خط رو حذف کن
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-ai_platform}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: ./services/chat-service/Dockerfile
+    environment:
+      # ✅ مهم‌ترین اصلاح: اتصال داخلی به سرویس postgres همین compose
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-ai_platform}
+
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-https://api.avalai.ir/v1}
+      LITELLM_MODEL: ${LITELLM_MODEL:-gemini-2.5-flash-lite-preview-09-2025}
+
+      MAX_SESSION_MESSAGES: ${MAX_SESSION_MESSAGES:-30}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-14400}
+
+      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL:-}
+      LIGHTRAG_USERNAME: ${LIGHTRAG_USERNAME:-}
+      LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD:-}
+      LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE:-}
+      LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
   gateway:
     build:
@@ -25,43 +49,11 @@ services:
       dockerfile: ./services/gateway/Dockerfile
     environment:
       CHAT_SERVICE_URL: http://chat-service:8001
-    # Port mapping removed - Coolify manages ports automatically
-    # If running locally, uncomment: ports: - "8000:8000"
     depends_on:
-      - chat-service
-    # Volume mounts removed for production - code is copied into image during build
-    # For local development with hot-reload, uncomment:
-    # volumes:
-    #   - ./shared:/app/shared
-    #   - ./services/gateway:/app/services/gateway
+      chat-service:
+        condition: service_started
     restart: unless-stopped
 
-  chat-service:
-    build:
-      context: .
-      dockerfile: ./services/chat-service/Dockerfile
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      LITELLM_API_KEY: ${LITELLM_API_KEY}
-      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-https://api.avalai.ir/v1}
-      LITELLM_MODEL: ${LITELLM_MODEL:-gemini-2.5-flash-lite-preview-09-2025}
-      MAX_SESSION_MESSAGES: ${MAX_SESSION_MESSAGES:-30}
-      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-14400}
-      LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL:-}
-      LIGHTRAG_USERNAME: ${LIGHTRAG_USERNAME:-}
-      LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD:-}
-      LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE:-}
-      LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN:-}
-    # Port mapping removed - chat-service is internal only, accessed via Docker network
-    # If running locally, uncomment: ports: - "8001:8001"
-    depends_on:
-      - postgres
-    # Volume mounts removed for production - code is copied into image during build
-    # For local development with hot-reload, uncomment:
-    # volumes:
-    #   - ./shared:/app/shared
-    #   - ./services/chat-service:/app/services/chat-service
-    restart: unless-stopped
 volumes:
   postgres_data:
     driver: local
