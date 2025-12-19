@@ -2,6 +2,7 @@
 Knowledge Base Tool - Query LightRAG Server for information.
 """
 import os
+import logging
 import httpx
 from tools.registry import Tool
 from dataclasses import dataclass, field
@@ -150,12 +151,22 @@ class KnowledgeBaseTool(Tool):
                     timeout=30.0
                 )
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                
+                # Log if response is empty or malformed
+                if not result.get("response"):
+                    logging.warning(f"LightRAG query returned empty response for query: {payload.get('query', '')[:50]}")
+                    logging.debug(f"LightRAG response: {result}")
+                
+                return result
             except httpx.HTTPStatusError as e:
+                logging.error(f"LightRAG HTTP error {e.response.status_code}: {e.response.text}")
                 return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
             except httpx.RequestError as e:
+                logging.error(f"LightRAG request error: {str(e)}")
                 return {"error": f"Request failed: {str(e)}"}
             except Exception as e:
+                logging.error(f"LightRAG unexpected error: {str(e)}")
                 return {"error": f"Unexpected error: {str(e)}"}
     
     async def execute(
@@ -203,7 +214,15 @@ class KnowledgeBaseTool(Tool):
         response_text = result.get("response", "")
         references = result.get("references", [])
         
-        formatted = response_text
+        # Check if response is empty or just whitespace
+        if not response_text or not response_text.strip():
+            # Check if there are references but no response text
+            if references:
+                return "[Knowledge Base] No detailed response found, but references are available. The knowledge base may not have detailed information about this topic."
+            else:
+                return "[Knowledge Base] No information found in the knowledge base for this query. The knowledge base does not contain relevant information about this topic."
+        
+        formatted = response_text.strip()
         
         # Add citations if references exist
         if references and include_references:
