@@ -33,7 +33,32 @@ load_dotenv()
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="Chat Service")
+app = FastAPI(
+    title="AI Platform Chat Service API",
+    description="""
+    Chat service for the AI Platform that handles AI agent interactions.
+    
+    ## Features
+    - Multiple AI agents with different personas (default, tutor, professional, minimal, translator)
+    - Session management with conversation history
+    - Shared context across agents
+    - User data persistence
+    - Knowledge base integration (LightRAG)
+    - Tool support (calculator, weather, web search, etc.)
+    
+    ## API Endpoints
+    - `/chat/{agent_key}` - Send messages to AI agents
+    - `/agents` - List available AI agents
+    - `/session/{session_id}/context` - Get session context
+    - `/session/{session_id}/user-data` - Get user data for a session
+    - `/fields` - Manage user data fields dynamically
+    - `/health` - Service health check
+    """,
+    version="1.0.0",
+    docs_url="/doc",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -305,17 +330,26 @@ Do not add advice, suggestions, or extra content.
         data={"agents": list(AGENTS.keys())},
     )
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health():
+    """
+    Chat service health check.
+    
+    Returns the health status of the chat service and list of available agents.
+    """
     return {
         "status": "healthy",
         "service": "chat",
         "agents": list(AGENTS.keys())
     }
 
-@app.get("/agents")
+@app.get("/agents", tags=["Agents"])
 async def list_agents():
-    """List all available agents with their details."""
+    """
+    List all available AI agents with their details.
+    
+    Returns information about each agent including name, model, capabilities, and max turns.
+    """
     result = {}
     for key, agent in AGENTS.items():
         agent_info = {
@@ -334,7 +368,7 @@ async def list_agents():
     return result
 
 
-@app.get("/personas")
+@app.get("/personas", tags=["Agents"])
 async def list_personas():
     """List all available chat personas."""
     personas = []
@@ -358,7 +392,7 @@ async def list_personas():
     }
 
 
-@app.get("/tools")
+@app.get("/tools", tags=["Tools"])
 async def list_tools():
     """List all available tools in the system."""
     tools = []
@@ -375,7 +409,7 @@ async def list_tools():
     }
 
 
-@app.get("/tools/{tool_name}")
+@app.get("/tools/{tool_name}", tags=["Tools"])
 async def get_tool_info(tool_name: str):
     """Get detailed information about a specific tool."""
     tool = ToolRegistry.get_tool(tool_name)
@@ -450,8 +484,17 @@ def normalize_user_data(user_data: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
-@app.post("/chat/{agent_key}")
+@app.post("/chat/{agent_key}", tags=["Chat"])
 async def chat(agent_key: str, request: AgentRequest):
+    """
+    Send a message to an AI agent.
+    
+    Processes the user's message through the specified AI agent and returns a response.
+    Supports session management, user data persistence, and shared context across agents.
+    
+    - **agent_key**: The identifier of the agent (e.g., 'default', 'tutor', 'professional')
+    - **request**: Contains message, optional session_id, user_data, and use_shared_context flag
+    """
     if agent_key not in AGENTS:
         raise HTTPException(404, f"Agent '{agent_key}' not found")
     
@@ -579,7 +622,7 @@ async def delete_session(session_id: str):
     
     return {"status": "deleted", "session_id": session_id}
 
-@app.get("/session/{session_id}/context")
+@app.get("/session/{session_id}/context", tags=["Sessions"])
 async def get_session_context(session_id: str):
     """Get all shared context for session"""
     try:
@@ -591,7 +634,7 @@ async def get_session_context(session_id: str):
     return {"session_id": session_id, "context": context or {}}
 
 
-@app.get("/session/{session_id}/user-data")
+@app.get("/session/{session_id}/user-data", tags=["Sessions"])
 async def get_session_user_data(session_id: str):
     """
     Get user data for a session in app format.
