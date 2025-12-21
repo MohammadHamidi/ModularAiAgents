@@ -162,6 +162,59 @@ async def list_agents():
     except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
 
+@app.get("/personas", tags=["Agents"])
+async def list_personas():
+    """
+    List all available chat personas.
+    
+    Returns a list of all configured personas with their keys, names, versions,
+    descriptions, field counts, and available tools.
+    """
+    try:
+        response = await http_client.get("/personas")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.get("/tools", tags=["Tools"])
+async def list_tools():
+    """
+    List all available tools in the system.
+    
+    Returns a list of all registered tools with their names, descriptions,
+    enabled status, and parameters.
+    """
+    try:
+        response = await http_client.get("/tools")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.get("/tools/{tool_name}", tags=["Tools"])
+async def get_tool_info(tool_name: str):
+    """
+    Get detailed information about a specific tool.
+    
+    Returns comprehensive information about the specified tool including
+    its name, description, enabled status, and full parameter schema.
+    
+    - **tool_name**: The name/identifier of the tool to query
+    """
+    try:
+        response = await http_client.get(f"/tools/{tool_name}")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
 @app.post("/chat/{agent_key}", tags=["Chat"], response_model=ChatResponse)
 async def chat(agent_key: str, request: ChatRequest):
     """

@@ -177,8 +177,8 @@ async def startup():
     
     try:
         engine = create_async_engine(db_url, pool_pre_ping=True)
-        session_manager = SessionManager(db_url)
-        context_manager = ContextManager(engine)
+    session_manager = SessionManager(db_url)
+    context_manager = ContextManager(engine)
         
         # Test database connection on startup
         try:
@@ -541,8 +541,8 @@ async def chat(agent_key: str, request: AgentRequest):
 
     # Load session history
     try:
-        session = await session_manager.get_session(sid)
-        history = session["messages"] if session else []
+    session = await session_manager.get_session(sid)
+    history = session["messages"] if session else []
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
         # Continue with empty history if database is unavailable
@@ -554,7 +554,7 @@ async def chat(agent_key: str, request: AgentRequest):
     shared_context = {}
     if request.use_shared_context:
         try:
-            shared_context = await context_manager.get_context(sid) or {}
+        shared_context = await context_manager.get_context(sid) or {}
         except Exception as e:
             logging.error(f"Database connection error when loading context for session {sid}: {e}")
             logging.warning("Continuing with empty context due to database error")
@@ -583,11 +583,11 @@ async def chat(agent_key: str, request: AgentRequest):
     # Save context updates
     if response.context_updates:
         try:
-            await context_manager.merge_context(
-                sid, 
-                response.context_updates, 
-                agent_type=agent_key
-            )
+        await context_manager.merge_context(
+            sid, 
+            response.context_updates, 
+            agent_type=agent_key
+        )
         except Exception as e:
             logging.error(f"Database connection error when saving context for session {sid}: {e}")
             logging.warning("Context not persisted due to database error, but response sent successfully")
@@ -595,12 +595,12 @@ async def chat(agent_key: str, request: AgentRequest):
     # Save session (agent should return updated history in metadata)
     new_history = response.metadata.get("history", history)
     try:
-        await session_manager.upsert_session(
-            sid, 
-            new_history, 
-            agent_key,
-            metadata={"last_agent": agent_key}
-        )
+    await session_manager.upsert_session(
+        sid, 
+        new_history, 
+        agent_key,
+        metadata={"last_agent": agent_key}
+    )
     except Exception as e:
         logging.error(f"Database connection error when saving session {sid}: {e}")
         # Log but don't fail the request - user still gets their response
@@ -608,7 +608,7 @@ async def chat(agent_key: str, request: AgentRequest):
     
     return response
 
-@app.delete("/session/{session_id}")
+@app.delete("/session/{session_id}", tags=["Sessions"])
 async def delete_session(session_id: str):
     """Delete session and its context"""
     try:

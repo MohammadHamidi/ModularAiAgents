@@ -180,25 +180,25 @@
 </head>
 
 <body class="bg-[#F5F5F5] h-screen overflow-hidden">
-    <div class="h-full flex flex-col max-w-[600px] mx-auto p-3">
+    <div class="h-full flex flex-col max-w-[600px] mx-auto p-2 sm:p-3 md:p-4">
         <!-- Widget Card Container (screenshot look) -->
         <div class="widget-card flex-1 flex flex-col relative">
 
             <!-- Header (screenshot style) -->
-            <div class="h-[56px] flex items-center justify-center relative">
-                <h1 class="text-[16px] font-bold text-[#56555B]">هوش مصنوعی سفیران آیه ها</h1>
+            <div class="h-[48px] sm:h-[56px] flex items-center justify-center relative">
+                <h1 class="text-[14px] sm:text-[16px] font-bold text-[#56555B]">هوش مصنوعی سفیران آیه ها</h1>
 
                 <!-- Logo (right) -->
-                <div class="absolute right-3 top-2 w-[44px] h-[44px] flex items-center justify-center">
-                    <img src="/ui/icon.png" alt="سفیران آیه ها" class="w-[44px] h-[44px] object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-                    <div class="w-[44px] h-[44px] rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold text-[18px] hidden">
+                <div class="absolute right-2 sm:right-3 top-2 w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] flex items-center justify-center">
+                    <img src="/ui/icon.png" alt="سفیران آیه ها" class="w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                    <div class="w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold text-[16px] sm:text-[18px] hidden">
                         س
                     </div>
                 </div>
 
                 <!-- Agent Selector (visible) -->
-                <div class="absolute left-3 top-2">
-                    <select id="agentSelector" class="text-[11px] px-2 py-1 rounded-lg border border-gray-300 bg-white text-gray-700 focus:outline-none focus:border-blue-500">
+                <div class="absolute left-2 sm:left-3 top-2">
+                    <select id="agentSelector" class="text-[12px] sm:text-[11px] px-2 py-1.5 sm:py-1 rounded-lg border border-gray-300 bg-white text-gray-700 focus:outline-none focus:border-blue-500">
                         <option value="default">پیش‌فرض</option>
                         <option value="tutor">معلم</option>
                         <option value="professional">حرفه‌ای</option>
@@ -209,20 +209,20 @@
 
 
             <!-- Chat Container -->
-            <div id="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4 relative" style="scrollbar-width: none; -ms-overflow-style: none;">
+            <div id="chatContainer" class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 relative" style="scrollbar-width: none; -ms-overflow-style: none;">
                 <!-- Welcome UI injected by JS -->
             </div>
 
             <!-- Input Area -->
-            <div class="bg-white border-t border-gray-200 p-4">
-                <div class="flex items-end gap-3">
+            <div class="bg-white border-t border-gray-200 p-3 sm:p-4">
+                <div class="flex items-end gap-2 sm:gap-3">
                     <textarea id="messageInput" rows="1" placeholder="سفیران آیه ها چیه؟ پلتفرمی هست و من اینجا میتونم چه کارهایی انجام بدم؟"
-                        class="flex-1 resize-none rounded-2xl border border-gray-300 px-4 py-3 text-[13px] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 overflow-hidden"
+                        class="flex-1 resize-none rounded-2xl border border-gray-300 px-3 py-2.5 sm:px-4 sm:py-3 text-[14px] sm:text-[13px] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 overflow-hidden"
                         style="min-height: 48px; max-height: 200px;"></textarea>
                     
                     <button id="sendButton"
-                        class="w-[50px] h-[50px] bg-[#4CAF50] hover:bg-[#45a049] disabled:bg-gray-300 rounded-full flex items-center justify-center shadow-md transition-all flex-shrink-0">
-                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        class="w-[44px] h-[44px] sm:w-[50px] sm:h-[50px] bg-[#4CAF50] hover:bg-[#45a049] disabled:bg-gray-300 rounded-full flex items-center justify-center shadow-md transition-all flex-shrink-0">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                         </svg>
@@ -232,18 +232,18 @@
                 <div class="mt-3 space-y-2">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2 flex-1 min-w-0">
-                            <span class="text-[11px] text-gray-500 flex-shrink-0">Session ID:</span>
-                            <span id="sessionIdDisplay" class="text-[11px] text-gray-700 font-mono truncate" title="">-</span>
+                            <span class="text-[12px] sm:text-[11px] text-gray-500 flex-shrink-0">Session ID:</span>
+                            <span id="sessionIdDisplay" class="text-[12px] sm:text-[11px] text-gray-700 font-mono truncate" title="">-</span>
                         </div>
-                        <button id="userDataToggle" class="text-[11px] text-blue-600 hover:text-blue-700 flex-shrink-0">
+                        <button id="userDataToggle" class="text-[12px] sm:text-[11px] text-blue-600 hover:text-blue-700 flex-shrink-0">
                             اطلاعات کاربری را ارسال کنم
                         </button>
                     </div>
                     <div class="flex items-center gap-2">
                         <input type="text" id="sessionIdInput" placeholder="وارد کردن Session ID برای اتصال"
-                            class="flex-1 text-[11px] px-2 py-1 rounded-lg border border-gray-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono">
+                            class="flex-1 text-[12px] sm:text-[11px] px-2.5 py-1.5 sm:px-2 sm:py-1 rounded-lg border border-gray-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono">
                         <button id="connectSessionButton" 
-                            class="text-[11px] px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0">
+                            class="text-[12px] sm:text-[11px] px-3 py-1.5 sm:py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0">
                             اتصال
                         </button>
                     </div>
@@ -255,30 +255,30 @@
     <!-- User Data Modal -->
     <div id="userDataModal"
         class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6">
-            <h2 class="text-[16px] font-semibold mb-4">اطلاعات کاربری</h2>
+        <div class="bg-white rounded-2xl max-w-[95%] sm:max-w-md w-full max-h-[80vh] overflow-y-auto p-4 sm:p-6">
+            <h2 class="text-[15px] sm:text-[16px] font-semibold mb-4">اطلاعات کاربری</h2>
 
             <div class="space-y-4">
                 <!-- اطلاعات فردی -->
                 <div class="border-b pb-3 mb-3">
-                    <h3 class="text-[13px] font-semibold text-gray-800 mb-2">اطلاعات فردی</h3>
+                    <h3 class="text-[14px] sm:text-[13px] font-semibold text-gray-800 mb-2">اطلاعات فردی</h3>
                     
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">نام و نام خانوادگی</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">نام و نام خانوادگی</label>
                             <input type="text" id="fullName"
-                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">شماره همراه</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">شماره همراه</label>
                             <input type="text" id="phoneNumber" placeholder="09123456789"
-                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">جنسیت</label>
-                            <select id="gender" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">جنسیت</label>
+                            <select id="gender" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                                 <option value="">انتخاب کنید</option>
                                 <option value="male">مرد</option>
                                 <option value="female">زن</option>
@@ -287,14 +287,14 @@
 
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-[12px] text-gray-700 mb-1">ماه تولد</label>
+                                <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">ماه تولد</label>
                                 <input type="number" id="birthMonth" min="1" max="12" placeholder="1-12"
-                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                             </div>
                             <div>
-                                <label class="block text-[12px] text-gray-700 mb-1">سال تولد</label>
+                                <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">سال تولد</label>
                                 <input type="number" id="birthYear" min="1300" max="1410" placeholder="1400"
-                                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                             </div>
                         </div>
                     </div>
@@ -302,48 +302,48 @@
 
                 <!-- اطلاعات محل سکونت -->
                 <div class="border-b pb-3 mb-3">
-                    <h3 class="text-[13px] font-semibold text-gray-800 mb-2">اطلاعات محل سکونت</h3>
+                    <h3 class="text-[14px] sm:text-[13px] font-semibold text-gray-800 mb-2">اطلاعات محل سکونت</h3>
                     
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">استان</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">استان</label>
                             <input type="text" id="province"
-                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">شهر</label>
-                            <input type="text" id="city" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">شهر</label>
+                            <input type="text" id="city" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
                     </div>
                 </div>
 
                 <!-- اطلاعات Activities -->
                 <div>
-                    <h3 class="text-[13px] font-semibold text-gray-800 mb-2">اطلاعات Activities</h3>
+                    <h3 class="text-[14px] sm:text-[13px] font-semibold text-gray-800 mb-2">اطلاعات Activities</h3>
                     
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">کنش ثبت شده</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">کنش ثبت شده</label>
                             <input type="number" id="registeredActions" min="0" placeholder="0"
-                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">امتیاز</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">امتیاز</label>
                             <input type="number" id="score" min="0" placeholder="0"
-                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">در انتظار ثبت گزارش</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">در انتظار ثبت گزارش</label>
                             <input type="number" id="pendingReports" min="0" placeholder="0"
-                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
-                            <label class="block text-[12px] text-gray-700 mb-1">سطح</label>
-                            <select id="level" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-[13px]">
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">سطح</label>
+                            <select id="level" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                                 <option value="">انتخاب کنید</option>
                                 <option value="beginner">مبتدی</option>
                                 <option value="intermediate">متوسط</option>
@@ -356,11 +356,11 @@
 
             <div class="flex gap-3 mt-6">
                 <button id="saveUserData"
-                    class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-[13px] hover:bg-blue-700">
+                    class="flex-1 bg-blue-600 text-white rounded-lg py-3 sm:py-2.5 text-[14px] sm:text-[13px] hover:bg-blue-700">
                     ذخیره
                 </button>
                 <button id="cancelUserData"
-                    class="flex-1 bg-gray-200 text-gray-700 rounded-lg py-2.5 text-[13px] hover:bg-gray-300">
+                    class="flex-1 bg-gray-200 text-gray-700 rounded-lg py-3 sm:py-2.5 text-[14px] sm:text-[13px] hover:bg-gray-300">
                     انصراف
                 </button>
             </div>
@@ -454,14 +454,14 @@
         function renderWelcome() {
             chatContainer.innerHTML = `
         <div class="space-y-3 pt-2">
-          <div class="welcome-bubble p-4 cursor-pointer" id="welcomeBubble">
-            <p class="text-[14px] leading-[1.9] text-[#B7B7B9] text-right">
+          <div class="welcome-bubble p-3 sm:p-4 cursor-pointer" id="welcomeBubble">
+            <p class="text-[15px] sm:text-[14px] leading-[1.9] text-[#B7B7B9] text-right">
               ${escapeHtml(WELCOME_QUESTION)}
             </p>
           </div>
 
           <div class="helper-message-gradient relative">
-            <p class="text-[13px] leading-[1.8] text-[#A5A5A7] text-right px-2 py-2 bg-white rounded-lg">
+            <p class="text-[14px] sm:text-[13px] leading-[1.8] text-[#A5A5A7] text-right px-3 py-2.5 sm:px-2 sm:py-2 bg-white rounded-lg">
               ${escapeHtml(WELCOME_HELPER)}
             </p>
           </div>
@@ -509,8 +509,8 @@
             if (isUser) {
                 messageDiv.innerHTML = `
           <div class="flex justify-start mb-2">
-            <div class="bg-blue-500 text-white rounded-[20px] rounded-tr-[6px] p-4 max-w-[85%] shadow-sm">
-              <p class="text-[13px] leading-[1.8] whitespace-pre-wrap">${escapeHtml(text)}</p>
+            <div class="bg-blue-500 text-white rounded-[20px] rounded-tr-[6px] p-3 sm:p-4 max-w-[90%] sm:max-w-[85%] shadow-sm">
+              <p class="text-[14px] sm:text-[13px] leading-[1.8] whitespace-pre-wrap">${escapeHtml(text)}</p>
             </div>
           </div>
         `;
@@ -532,10 +532,10 @@
                     if (suggestions.length > 0) {
                         suggestionsHtml = `
               <div class="mt-4 pt-4 border-t border-gray-200">
-                <p class="text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p>
+                <p class="text-[13px] sm:text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p>
                 <div class="space-y-2">
                   ${suggestions.map((s, idx) => `
-                    <button class="suggestion-btn w-full text-right text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(s)}">
+                    <button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(s)}">
                       ${idx + 1}) ${escapeHtml(s)}
                     </button>
                   `).join('')}
@@ -551,13 +551,13 @@
                 if (sourcesMatch) {
                     const sourcesText = sourcesMatch[0];
                     mainText = mainText.replace(sourcesMatch[0], '').trim();
-                    sourcesHtml = `<div class="mt-3 pt-3 border-t border-gray-100"><p class="text-[11px] text-gray-500">${escapeHtml(sourcesText)}</p></div>`;
+                    sourcesHtml = `<div class="mt-3 pt-3 border-t border-gray-100"><p class="text-[12px] sm:text-[11px] text-gray-500">${escapeHtml(sourcesText)}</p></div>`;
                 }
                 
                 messageDiv.innerHTML = `
           <div class="flex justify-end mb-2">
-            <div class="bg-white rounded-[20px] rounded-tl-[6px] p-4 max-w-[85%] shadow-sm">
-              <div class="text-[13px] leading-[1.8] text-[#4a4a4a] whitespace-pre-wrap">${escapeHtml(mainText)}</div>
+            <div class="bg-white rounded-[20px] rounded-tl-[6px] p-3 sm:p-4 max-w-[90%] sm:max-w-[85%] shadow-sm">
+              <div class="text-[14px] sm:text-[13px] leading-[1.8] text-[#4a4a4a] whitespace-pre-wrap">${escapeHtml(mainText)}</div>
               ${sourcesHtml}
               ${suggestionsHtml}
             </div>
@@ -586,7 +586,7 @@
             typingDiv.id = 'typingIndicator';
             typingDiv.className = 'flex justify-end';
             typingDiv.innerHTML = `
-        <div class="bg-white rounded-[20px] rounded-tl-[6px] px-5 py-4 shadow-sm">
+        <div class="bg-white rounded-[20px] rounded-tl-[6px] px-4 py-3 sm:px-5 sm:py-4 shadow-sm">
           <div class="typing-indicator flex gap-1">
             <span class="w-2 h-2 bg-gray-400 rounded-full"></span>
             <span class="w-2 h-2 bg-gray-400 rounded-full"></span>
@@ -715,7 +715,7 @@
             
             // Show success message
             const successMsg = document.createElement('div');
-            successMsg.className = 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 text-[12px] message-enter';
+            successMsg.className = 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 text-[13px] sm:text-[12px] message-enter';
             successMsg.textContent = `✓ به Session ${sessionId.substring(0, 8)}... متصل شدید`;
             chatContainer.appendChild(successMsg);
             setTimeout(() => successMsg.remove(), 3000);
