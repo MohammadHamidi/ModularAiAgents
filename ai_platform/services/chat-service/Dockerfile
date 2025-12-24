@@ -1,3 +1,8 @@
+# Use standard tag for better compatibility and caching
+# If you encounter TLS handshake timeouts, try:
+# 1. Check server network connectivity to Docker Hub
+# 2. Configure Docker registry mirror in Coolify
+# 3. Retry the deployment (may be temporary network issue)
 FROM python:3.11-slim
 
 WORKDIR /app
