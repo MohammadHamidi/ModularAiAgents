@@ -233,6 +233,54 @@ Returns:
             company_tool.__doc__ = full_doc
             self.agent.tool(company_tool)
             
+        elif tool.name == "query_konesh":
+            async def konesh_tool(
+                ctx: RunContext[ChatDependencies],
+                query: str,
+                category: Optional[str] = None,
+                is_primary: Optional[bool] = None,
+                limit: int = 10
+            ) -> str:
+                """Query the کنش (Quranic Actions) database."""
+                result = await tool_ref.execute(
+                    query=query,
+                    category=category,
+                    is_primary=is_primary,
+                    limit=limit
+                )
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            konesh_tool.__doc__ = full_doc
+            self.agent.tool(konesh_tool)
+            
+        elif tool.name == "route_to_agent":
+            # AgentRouterTool uses run() method, not execute()
+            async def route_tool(
+                ctx: RunContext[ChatDependencies],
+                agent_key: str,
+                user_message: str,
+                session_id: Optional[str] = None
+            ) -> str:
+                """Route a user request to a specialist agent."""
+                # Use run() method for AgentRouterTool
+                if hasattr(tool_ref, 'run'):
+                    result = await tool_ref.run(
+                        agent_key=agent_key,
+                        user_message=user_message,
+                        session_id=session_id or ctx.deps.session_id
+                    )
+                else:
+                    # Fallback to execute if available
+                    result = await tool_ref.execute(
+                        agent_key=agent_key,
+                        user_message=user_message,
+                        session_id=session_id or ctx.deps.session_id
+                    )
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            route_tool.__doc__ = full_doc
+            self.agent.tool(route_tool)
+            
         else:
             # Generic fallback - single string query parameter
             async def generic_tool(ctx: RunContext[ChatDependencies], query: str) -> str:

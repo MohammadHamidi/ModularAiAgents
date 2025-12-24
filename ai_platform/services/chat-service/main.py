@@ -27,6 +27,7 @@ from tools.knowledge_base import KnowledgeBaseTool, GetLearningResourceTool
 from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool, GetCompanyInfoTool
+from tools.konesh_query import KoneshQueryTool
 
 load_dotenv()
 
@@ -240,6 +241,7 @@ async def startup():
     ToolRegistry.register_tool(WeatherTool())
     ToolRegistry.register_tool(WebSearchTool())
     ToolRegistry.register_tool(GetCompanyInfoTool())
+    ToolRegistry.register_tool(KoneshQueryTool())
     
     logging.info(f"Registered {len(ToolRegistry.list_tools())} tools: {ToolRegistry.list_tools()}")
     
@@ -249,6 +251,8 @@ async def startup():
         "tutor": ["knowledge_base_query", "calculator", "get_learning_resource"],
         "professional": ["knowledge_base_query", "web_search", "get_company_info", "calculator"],
         "minimal": [],  # Privacy-focused, no external tools
+        "konesh_expert": ["query_konesh", "knowledge_base_query"],  # کنش expert tools
+        "orchestrator": ["route_to_agent"],  # Orchestrator routing tool
     }
     
     # ==========================================================================
@@ -263,9 +267,12 @@ async def startup():
         "tutor": "personalities/friendly_tutor.yaml",
         "professional": "personalities/professional_assistant.yaml",
         "minimal": "personalities/minimal_assistant.yaml",
+        "konesh_expert": "personalities/konesh_expert.yaml",
+        "orchestrator": "personalities/orchestrator.yaml",
     }
     
     # Register each persona as a separate agent with their tools
+    # Note: orchestrator will get router_tool added later (it needs AGENTS dict to exist first)
     for agent_key, config_path in persona_configs.items():
         try:
             persona_config = load_agent_config(config_path)
@@ -315,6 +322,19 @@ Do not add advice, suggestions, or extra content.
 اگر مطمئن نیستی یا داده کافی نیست، حدس نزن. بگو «اطلاعات کافی ندارم»."""
         }
     })
+    
+    # Register AgentRouterTool for orchestrator (must be AFTER all agents are in AGENTS dict, but BEFORE initialization)
+    from tools.agent_router import AgentRouterTool
+    router_tool = AgentRouterTool(AGENTS, context_manager)
+    ToolRegistry.register_tool(router_tool)
+    
+    # Add router tool to orchestrator's custom tools BEFORE initialization
+    if "orchestrator" in AGENTS:
+        orchestrator_agent = AGENTS["orchestrator"]
+        if not hasattr(orchestrator_agent, 'custom_tools') or orchestrator_agent.custom_tools is None:
+            orchestrator_agent.custom_tools = []
+        orchestrator_agent.custom_tools.append(router_tool)
+        logging.info(f"Added route_to_agent tool to orchestrator before initialization")
     
     # Initialize all agents with shared http_client
     for key, agent in AGENTS.items():

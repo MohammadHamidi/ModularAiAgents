@@ -4,11 +4,12 @@ Allows the orchestrator agent to route requests to specialist agents
 """
 from typing import Any, Dict, Optional
 import logging
+from tools.registry import Tool
 
 logger = logging.getLogger(__name__)
 
 
-class AgentRouterTool:
+class AgentRouterTool(Tool):
     """Tool for routing user requests to specialist agents"""
 
     def __init__(self, agents_registry: Dict[str, Any], context_manager: Any):
@@ -21,22 +22,18 @@ class AgentRouterTool:
         """
         self.agents_registry = agents_registry
         self.context_manager = context_manager
-        logger.info(f"AgentRouterTool initialized with {len(agents_registry)} agents")
-
-    @property
-    def name(self) -> str:
-        return "route_to_agent"
-
-    @property
-    def description(self) -> str:
-        return """
+        
+        # Initialize Tool base class
+        super().__init__(
+            name="route_to_agent",
+            description="""
         Route a user request to a specialist agent and get their response.
 
         Use this tool to forward the user's message to the appropriate specialist agent.
 
         Parameters:
         - agent_key (str, required): The key of the specialist agent to route to.
-          Available agents: 'doctor', 'tutor', 'professional', 'default', 'minimal'
+          Available agents: 'doctor', 'tutor', 'professional', 'default', 'minimal', 'konesh_expert'
         - user_message (str, required): The user's original message to forward
         - session_id (str, optional): Session ID for maintaining context
 
@@ -44,9 +41,39 @@ class AgentRouterTool:
         - route_to_agent(agent_key="doctor", user_message="سلام، سردرد دارم")
         - route_to_agent(agent_key="tutor", user_message="Help me with math homework")
         - route_to_agent(agent_key="default", user_message="درباره آیه 12 بگو")
+        - route_to_agent(agent_key="konesh_expert", user_message="کنش‌های مدرسه چیه؟")
 
         Returns: The specialist agent's response as a string
-        """
+        """,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "agent_key": {
+                        "type": "string",
+                        "description": "The key of the specialist agent to route to"
+                    },
+                    "user_message": {
+                        "type": "string",
+                        "description": "The user's original message to forward"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional session ID for maintaining context"
+                    }
+                },
+                "required": ["agent_key", "user_message"]
+            }
+        )
+        logger.info(f"AgentRouterTool initialized with {len(agents_registry)} agents")
+
+    async def execute(
+        self,
+        agent_key: str,
+        user_message: str,
+        session_id: Optional[str] = None
+    ) -> str:
+        """Execute method for Tool interface - delegates to run()."""
+        return await self.run(agent_key, user_message, session_id)
 
     async def run(
         self,
@@ -76,10 +103,7 @@ class AgentRouterTool:
 
             logger.info(f"Routing request to agent '{agent_key}': {user_message[:50]}...")
 
-            # Call the specialist agent
-            # Note: This assumes agents have a 'run' or 'chat' method
-            # You may need to adjust based on your actual agent interface
-
+            # Call the specialist agent using the process() method (ChatAgent interface)
             from shared.base_agent import AgentRequest
 
             request = AgentRequest(
@@ -88,8 +112,8 @@ class AgentRouterTool:
                 use_shared_context=True
             )
 
-            # Run the specialist agent
-            response = await specialist_agent.chat(request)
+            # Use process() method for ChatAgent (empty history and context for routed requests)
+            response = await specialist_agent.process(request, history=[], shared_context={})
 
             logger.info(f"Received response from agent '{agent_key}': {len(response.output)} chars")
 
