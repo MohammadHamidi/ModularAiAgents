@@ -1,9 +1,13 @@
 # Use standard tag for better compatibility and caching
-# If you encounter TLS handshake timeouts, try:
-# 1. Check server network connectivity to Docker Hub
-# 2. Configure Docker registry mirror in Coolify
-# 3. Retry the deployment (may be temporary network issue)
+# If you encounter TLS handshake timeouts, see DOCKER_BUILD_TROUBLESHOOTING.md
 FROM python:3.11-slim
+
+# =============================================================================
+# SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
+# Build args can end up in image history, build logs, and caches.
+# All secrets must be passed as RUNTIME environment variables only.
+# See docker-compose.yml environment: section and DOCKER_BUILD_TROUBLESHOOTING.md
+# =============================================================================
 
 WORKDIR /app
 

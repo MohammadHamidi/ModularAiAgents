@@ -5,7 +5,15 @@ services:
     build:
       context: .
       dockerfile: ./services/chat-service/Dockerfile
+      # ⚠️ SECURITY: Do NOT add args: section here for secrets!
+      # Build args can leak into image history and build logs.
+      # All secrets must be in environment: section below (runtime only).
+      # If Coolify passes secrets as build args, move them to runtime env vars.
     environment:
+      # =======================================================================
+      # RUNTIME ENVIRONMENT VARIABLES (Secure - not in build history)
+      # These are injected at container startup, not during build.
+      # =======================================================================
       # Database: REQUIRED - must be set in Coolify environment variables
       # Format: postgresql+asyncpg://user:pass@host:5432/dbname
       DATABASE_URL: ${DATABASE_URL}

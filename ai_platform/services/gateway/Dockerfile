@@ -1,5 +1,12 @@
 FROM python:3.11-slim
 
+# =============================================================================
+# SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
+# Build args can end up in image history, build logs, and caches.
+# All secrets must be passed as RUNTIME environment variables only.
+# See docker-compose.yml environment: section and DOCKER_BUILD_TROUBLESHOOTING.md
+# =============================================================================
+
 WORKDIR /app
 
 # Install system dependencies (including curl for health checks)
