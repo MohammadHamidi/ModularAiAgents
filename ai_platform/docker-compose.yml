@@ -11,7 +11,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       
       # LiteLLM Configuration
-      LITELLM_API_KEY: ${LITELLM_API_KEY:-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}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-sk-or}
       LITELLM_BASE_URL: ${LITELLM_BASE_URL:-https://openrouter.ai/api/v1}
       LITELLM_MODEL: ${LITELLM_MODEL:-google/gemini-2.5-flash-preview-09-2025}
       
