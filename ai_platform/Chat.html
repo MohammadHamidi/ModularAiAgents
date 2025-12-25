@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>هوش مصنوعی سفیران آیه ها</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
@@ -144,18 +145,23 @@
         }
 
         .no-scrollbar {
-            -ms-overflow-style: none;  /* IE and Edge */
-            scrollbar-width: none;  /* Firefox */
+            -ms-overflow-style: none;
+            /* IE and Edge */
+            scrollbar-width: none;
+            /* Firefox */
         }
 
         /* Chat container - hide scrollbar but allow scrolling */
         #chatContainer {
-            scrollbar-width: none; /* Firefox */
-            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none;
+            /* Firefox */
+            -ms-overflow-style: none;
+            /* IE and Edge */
         }
 
         #chatContainer::-webkit-scrollbar {
-            display: none; /* Chrome, Safari, Opera */
+            display: none;
+            /* Chrome, Safari, Opera */
         }
 
         /* Suggestion buttons styling */
@@ -176,6 +182,125 @@
             scrollbar-width: thin;
             scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
         }
+
+        /* ===== Markdown Styling ===== */
+        .markdown-content {
+            line-height: 1.8;
+        }
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3,
+        .markdown-content h4,
+        .markdown-content h5,
+        .markdown-content h6 {
+            font-weight: 600;
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+            color: #2d3748;
+        }
+
+        .markdown-content h1 {
+            font-size: 1.5em;
+        }
+
+        .markdown-content h2 {
+            font-size: 1.3em;
+        }
+
+        .markdown-content h3 {
+            font-size: 1.1em;
+        }
+
+        .markdown-content p {
+            margin-bottom: 1em;
+        }
+
+        .markdown-content ul,
+        .markdown-content ol {
+            margin-right: 1.5em;
+            margin-bottom: 1em;
+        }
+
+        .markdown-content li {
+            margin-bottom: 0.5em;
+        }
+
+        .markdown-content code {
+            background-color: #f7fafc;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #e53e3e;
+        }
+
+        .markdown-content pre {
+            background-color: #2d3748;
+            color: #f7fafc;
+            padding: 1em;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 1em;
+            direction: ltr;
+            text-align: left;
+        }
+
+        .markdown-content pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+            font-size: 0.875em;
+        }
+
+        .markdown-content blockquote {
+            border-right: 4px solid #cbd5e0;
+            padding-right: 1em;
+            margin: 1em 0;
+            color: #4a5568;
+            font-style: italic;
+        }
+
+        .markdown-content a {
+            color: #3182ce;
+            text-decoration: none;
+        }
+
+        .markdown-content a:hover {
+            text-decoration: underline;
+        }
+
+        .markdown-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1em;
+        }
+
+        .markdown-content table th,
+        .markdown-content table td {
+            border: 1px solid #e2e8f0;
+            padding: 0.5em;
+            text-align: right;
+        }
+
+        .markdown-content table th {
+            background-color: #f7fafc;
+            font-weight: 600;
+        }
+
+        .markdown-content hr {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 1.5em 0;
+        }
+
+        .markdown-content strong {
+            font-weight: 600;
+        }
+
+        .markdown-content em {
+            font-style: italic;
+        }
     </style>
 </head>
 
@@ -189,16 +314,21 @@
                 <h1 class="text-[14px] sm:text-[16px] font-bold text-[#56555B]">هوش مصنوعی سفیران آیه ها</h1>
 
                 <!-- Logo (right) -->
-                <div class="absolute right-2 sm:right-3 top-2 w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] flex items-center justify-center">
-                    <img src="/ui/icon.png" alt="سفیران آیه ها" class="w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-                    <div class="w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold text-[16px] sm:text-[18px] hidden">
+                <div
+                    class="absolute right-2 sm:right-3 top-2 w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] flex items-center justify-center">
+                    <img src="/ui/icon.png" alt="سفیران آیه ها"
+                        class="w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] object-contain"
+                        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                    <div
+                        class="w-[36px] h-[36px] sm:w-[44px] sm:h-[44px] rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold text-[16px] sm:text-[18px] hidden">
                         س
                     </div>
                 </div>
 
                 <!-- Agent Selector (visible) -->
                 <div class="absolute left-2 sm:left-3 top-2">
-                    <select id="agentSelector" class="text-[12px] sm:text-[11px] px-2 py-1.5 sm:py-1 rounded-lg border border-gray-300 bg-white text-gray-700 focus:outline-none focus:border-blue-500">
+                    <select id="agentSelector"
+                        class="text-[12px] sm:text-[11px] px-2 py-1.5 sm:py-1 rounded-lg border border-gray-300 bg-white text-gray-700 focus:outline-none focus:border-blue-500">
                         <option value="default">پیش‌فرض</option>
                         <option value="tutor">معلم</option>
                         <option value="professional">حرفه‌ای</option>
@@ -209,40 +339,45 @@
 
 
             <!-- Chat Container -->
-            <div id="chatContainer" class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 relative" style="scrollbar-width: none; -ms-overflow-style: none;">
+            <div id="chatContainer" class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 relative"
+                style="scrollbar-width: none; -ms-overflow-style: none;">
                 <!-- Welcome UI injected by JS -->
             </div>
 
             <!-- Input Area -->
             <div class="bg-white border-t border-gray-200 p-3 sm:p-4">
                 <div class="flex items-end gap-2 sm:gap-3">
-                    <textarea id="messageInput" rows="1" placeholder="سفیران آیه ها چیه؟ پلتفرمی هست و من اینجا میتونم چه کارهایی انجام بدم؟"
+                    <textarea id="messageInput" rows="1"
+                        placeholder="سفیران آیه ها چیه؟ پلتفرمی هست و من اینجا میتونم چه کارهایی انجام بدم؟"
                         class="flex-1 resize-none rounded-2xl border border-gray-300 px-3 py-2.5 sm:px-4 sm:py-3 text-[14px] sm:text-[13px] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 overflow-hidden"
                         style="min-height: 48px; max-height: 200px;"></textarea>
-                    
+
                     <button id="sendButton"
                         class="w-[44px] h-[44px] sm:w-[50px] sm:h-[50px] bg-[#4CAF50] hover:bg-[#45a049] disabled:bg-gray-300 rounded-full flex items-center justify-center shadow-md transition-all flex-shrink-0">
-                        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                         </svg>
                     </button>
                 </div>
-                
+
                 <div class="mt-3 space-y-2">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-2 flex-1 min-w-0">
                             <span class="text-[12px] sm:text-[11px] text-gray-500 flex-shrink-0">Session ID:</span>
-                            <span id="sessionIdDisplay" class="text-[12px] sm:text-[11px] text-gray-700 font-mono truncate" title="">-</span>
+                            <span id="sessionIdDisplay"
+                                class="text-[12px] sm:text-[11px] text-gray-700 font-mono truncate" title="">-</span>
                         </div>
-                        <button id="userDataToggle" class="text-[12px] sm:text-[11px] text-blue-600 hover:text-blue-700 flex-shrink-0">
+                        <button id="userDataToggle"
+                            class="text-[12px] sm:text-[11px] text-blue-600 hover:text-blue-700 flex-shrink-0">
                             اطلاعات کاربری را ارسال کنم
                         </button>
                     </div>
                     <div class="flex items-center gap-2">
                         <input type="text" id="sessionIdInput" placeholder="وارد کردن Session ID برای اتصال"
                             class="flex-1 text-[12px] sm:text-[11px] px-2.5 py-1.5 sm:px-2 sm:py-1 rounded-lg border border-gray-300 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono">
-                        <button id="connectSessionButton" 
+                        <button id="connectSessionButton"
                             class="text-[12px] sm:text-[11px] px-3 py-1.5 sm:py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0">
                             اتصال
                         </button>
@@ -262,10 +397,11 @@
                 <!-- اطلاعات فردی -->
                 <div class="border-b pb-3 mb-3">
                     <h3 class="text-[14px] sm:text-[13px] font-semibold text-gray-800 mb-2">اطلاعات فردی</h3>
-                    
+
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">نام و نام خانوادگی</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">نام و نام
+                                خانوادگی</label>
                             <input type="text" id="fullName"
                                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
@@ -278,7 +414,8 @@
 
                         <div>
                             <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">جنسیت</label>
-                            <select id="gender" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
+                            <select id="gender"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                                 <option value="">انتخاب کنید</option>
                                 <option value="male">مرد</option>
                                 <option value="female">زن</option>
@@ -303,7 +440,7 @@
                 <!-- اطلاعات محل سکونت -->
                 <div class="border-b pb-3 mb-3">
                     <h3 class="text-[14px] sm:text-[13px] font-semibold text-gray-800 mb-2">اطلاعات محل سکونت</h3>
-                    
+
                     <div class="space-y-3">
                         <div>
                             <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">استان</label>
@@ -313,7 +450,8 @@
 
                         <div>
                             <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">شهر</label>
-                            <input type="text" id="city" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
+                            <input type="text" id="city"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
                     </div>
                 </div>
@@ -321,7 +459,7 @@
                 <!-- اطلاعات Activities -->
                 <div>
                     <h3 class="text-[14px] sm:text-[13px] font-semibold text-gray-800 mb-2">اطلاعات Activities</h3>
-                    
+
                     <div class="space-y-3">
                         <div>
                             <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">کنش ثبت شده</label>
@@ -336,14 +474,16 @@
                         </div>
 
                         <div>
-                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">در انتظار ثبت گزارش</label>
+                            <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">در انتظار ثبت
+                                گزارش</label>
                             <input type="number" id="pendingReports" min="0" placeholder="0"
                                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                         </div>
 
                         <div>
                             <label class="block text-[13px] sm:text-[12px] text-gray-700 mb-1">سطح</label>
-                            <select id="level" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
+                            <select id="level"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 sm:py-2 text-[14px] sm:text-[13px]">
                                 <option value="">انتخاب کنید</option>
                                 <option value="beginner">مبتدی</option>
                                 <option value="intermediate">متوسط</option>
@@ -368,6 +508,14 @@
     </div>
 
     <script>
+        // Configure marked.js for better markdown rendering
+        marked.setOptions({
+            breaks: true,  // Convert \n to <br>
+            gfm: true,     // GitHub Flavored Markdown
+            headerIds: false,
+            mangle: false
+        });
+
         class SafiranAIClient {
             constructor(baseUrl = null) {
                 // Auto-detect base URL: if running on same domain, use relative path; otherwise use provided or default
@@ -429,7 +577,7 @@
                 Object.keys(this.userData).forEach(k => this.userData[k] === undefined && delete this.userData[k]);
             }
 
-            newSession() { 
+            newSession() {
                 this.sessionId = null;
             }
         }
@@ -482,7 +630,7 @@
             const scrollHeight = messageInput.scrollHeight;
             const maxHeight = 200; // max-height from CSS
             messageInput.style.height = Math.min(scrollHeight, maxHeight) + 'px';
-            
+
             // If content exceeds max height, allow scrolling only within textarea
             if (scrollHeight > maxHeight) {
                 messageInput.style.overflowY = 'auto';
@@ -491,7 +639,7 @@
             }
         }
         messageInput.addEventListener('input', autoResizeTextarea);
-        
+
         // Also resize on paste
         messageInput.addEventListener('paste', () => {
             setTimeout(autoResizeTextarea, 10);
@@ -519,7 +667,7 @@
                 const suggestionsMatch = text.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
                 let mainText = text;
                 let suggestionsHtml = '';
-                
+
                 if (suggestionsMatch) {
                     mainText = text.substring(0, suggestionsMatch.index).trim();
                     const suggestionsText = suggestionsMatch[1].trim();
@@ -528,7 +676,7 @@
                         // Remove the number prefix
                         return s.replace(/^\d+\)\s*/, '').trim();
                     });
-                    
+
                     if (suggestions.length > 0) {
                         suggestionsHtml = `
               <div class="mt-4 pt-4 border-t border-gray-200">
@@ -544,7 +692,7 @@
             `;
                     }
                 }
-                
+
                 // Handle Sources citation if present
                 let sourcesHtml = '';
                 const sourcesMatch = mainText.match(/Sources:\s*([^\n]+)/);
@@ -553,17 +701,17 @@
                     mainText = mainText.replace(sourcesMatch[0], '').trim();
                     sourcesHtml = `<div class="mt-3 pt-3 border-t border-gray-100"><p class="text-[12px] sm:text-[11px] text-gray-500">${escapeHtml(sourcesText)}</p></div>`;
                 }
-                
+
                 messageDiv.innerHTML = `
           <div class="flex justify-end mb-2">
             <div class="bg-white rounded-[20px] rounded-tl-[6px] p-3 sm:p-4 max-w-[90%] sm:max-w-[85%] shadow-sm">
-              <div class="text-[14px] sm:text-[13px] leading-[1.8] text-[#4a4a4a] whitespace-pre-wrap">${escapeHtml(mainText)}</div>
+              <div class="markdown-content text-[14px] sm:text-[13px] text-[#4a4a4a]">${marked.parse(mainText)}</div>
               ${sourcesHtml}
               ${suggestionsHtml}
             </div>
           </div>
         `;
-                
+
                 // Add click handlers for suggestions
                 messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
                     btn.addEventListener('click', () => {
@@ -620,7 +768,7 @@
                 const response = await aiClient.sendMessage(message, currentAgent);
                 hideTyping();
                 addMessage(response.output, false);
-                
+
                 // Update session ID display (show full ID)
                 if (response.session_id) {
                     sessionIdDisplay.textContent = response.session_id;
@@ -679,7 +827,7 @@
 
         // Wrap newSession to update session ID display
         const originalNewSession = aiClient.newSession.bind(aiClient);
-        aiClient.newSession = function() {
+        aiClient.newSession = function () {
             originalNewSession();
             if (sessionIdDisplay) {
                 sessionIdDisplay.textContent = '-';
@@ -696,23 +844,23 @@
                 alert('لطفاً Session ID را وارد کنید');
                 return;
             }
-            
+
             // Validate session ID format (UUID-like)
             const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!uuidPattern.test(sessionId)) {
                 alert('فرمت Session ID نامعتبر است. لطفاً یک Session ID معتبر وارد کنید.');
                 return;
             }
-            
+
             // Set the session ID
             aiClient.sessionId = sessionId;
             sessionIdDisplay.textContent = sessionId;
             sessionIdDisplay.title = sessionId;
-            
+
             // Clear chat and show welcome
             chatContainer.innerHTML = '';
             renderWelcome();
-            
+
             // Show success message
             const successMsg = document.createElement('div');
             successMsg.className = 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 text-[13px] sm:text-[12px] message-enter';
