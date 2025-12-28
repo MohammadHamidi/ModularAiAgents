@@ -512,13 +512,48 @@ async def chat(agent_key: str, request: AgentRequest):
     Processes the user's message through the specified AI agent and returns a response.
     Supports session management, user data persistence, and shared context across agents.
     
-    - **agent_key**: The identifier of the agent (e.g., 'default', 'tutor', 'professional')
+    - **agent_key**: The identifier of the agent (e.g., 'default', 'tutor', 'professional', 'orchestrator')
     - **request**: Contains message, optional session_id, user_data, and use_shared_context flag
-    """
-    if agent_key not in AGENTS:
-        raise HTTPException(404, f"Agent '{agent_key}' not found")
     
-    agent = AGENTS[agent_key]
+    Routing Logic:
+    - If agent_key is 'orchestrator', request goes directly to orchestrator
+    - If agent_key is any other agent, request first goes to orchestrator for intelligent routing
+    - Orchestrator will route to the requested agent or choose a better one based on the message content
+    """
+    # Check if orchestrator is available
+    if "orchestrator" not in AGENTS:
+        # Fallback: if orchestrator not available, use direct routing
+        if agent_key not in AGENTS:
+            raise HTTPException(404, f"Agent '{agent_key}' not found")
+        agent = AGENTS[agent_key]
+    else:
+        # Always route through orchestrator first (unless explicitly requesting orchestrator)
+        if agent_key == "orchestrator":
+            # Direct access to orchestrator
+            agent = AGENTS["orchestrator"]
+        else:
+            # Route through orchestrator, but pass the requested agent_key as hint
+            # The orchestrator will decide whether to use the requested agent or route to a better one
+            orchestrator_agent = AGENTS["orchestrator"]
+            
+            # Enhance message with requested agent hint for orchestrator
+            # Format: Add hint at the beginning of message (orchestrator will see this)
+            if agent_key in AGENTS:
+                # Add hint in a way orchestrator can understand
+                # We'll add it to the message as a prefix that orchestrator can parse
+                hint_prefix = f"[REQUESTED_AGENT: {agent_key}] "
+                enhanced_message = hint_prefix + request.message
+                # Create a new request with enhanced message
+                from shared.base_agent import AgentRequest
+                request = AgentRequest(
+                    message=enhanced_message,
+                    session_id=request.session_id,
+                    user_data=request.user_data,
+                    use_shared_context=request.use_shared_context
+                )
+            
+            # Use orchestrator for routing
+            agent = orchestrator_agent
     
     # Handle session
     if request.session_id:

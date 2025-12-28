@@ -93,6 +93,10 @@ class AgentRouterTool(Tool):
             Specialist agent's response
         """
         try:
+            # Remove [REQUESTED_AGENT: ...] prefix if present (orchestrator adds this)
+            import re
+            cleaned_message = re.sub(r'^\[REQUESTED_AGENT:\s*\w+\]\s*', '', user_message).strip()
+            
             # Validate agent exists
             if agent_key not in self.agents_registry:
                 available = ", ".join(self.agents_registry.keys())
@@ -101,13 +105,13 @@ class AgentRouterTool(Tool):
             # Get the specialist agent
             specialist_agent = self.agents_registry[agent_key]
 
-            logger.info(f"Routing request to agent '{agent_key}': {user_message[:50]}...")
+            logger.info(f"Routing request to agent '{agent_key}': {cleaned_message[:50]}...")
 
             # Call the specialist agent using the process() method (ChatAgent interface)
             from shared.base_agent import AgentRequest
 
             request = AgentRequest(
-                message=user_message,
+                message=cleaned_message,  # Use cleaned message without prefix
                 session_id=session_id,
                 use_shared_context=True
             )
