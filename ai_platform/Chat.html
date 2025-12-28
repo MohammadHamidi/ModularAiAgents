@@ -557,8 +557,8 @@
             }
 
             async sendMessageStreaming(message, agentKey) {
-                // Streaming endpoint
-                const response = await fetch(`${this.baseUrl}/chat/${agentKey}/stream`, {
+                // Streaming endpoint - always use orchestrator
+                const response = await fetch(`${this.baseUrl}/chat/orchestrator/stream`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
