@@ -7,6 +7,7 @@ import time
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
@@ -662,6 +663,125 @@ async def chat(agent_key: str, request: AgentRequest):
         logging.warning("Session not persisted due to database error, but response sent successfully")
     
     return response
+
+@app.post("/chat/{agent_key}/stream", tags=["Chat"])
+async def chat_stream(agent_key: str, request: AgentRequest):
+    """
+    Stream a message to an AI agent (Server-Sent Events).
+    
+    All requests are routed through orchestrator for intelligent routing.
+    Returns streaming response as Server-Sent Events (SSE).
+    """
+    import asyncio
+    
+    # Use the same routing logic as regular chat endpoint
+    if "orchestrator" not in AGENTS:
+        if agent_key not in AGENTS:
+            raise HTTPException(404, f"Agent '{agent_key}' not found")
+        agent = AGENTS[agent_key]
+    else:
+        if agent_key == "orchestrator":
+            agent = AGENTS["orchestrator"]
+        else:
+            orchestrator_agent = AGENTS["orchestrator"]
+            if agent_key in AGENTS:
+                hint_prefix = f"[REQUESTED_AGENT: {agent_key}] "
+                enhanced_message = hint_prefix + request.message
+                from shared.base_agent import AgentRequest
+                request = AgentRequest(
+                    message=enhanced_message,
+                    session_id=request.session_id,
+                    user_data=request.user_data,
+                    use_shared_context=request.use_shared_context
+                )
+            agent = orchestrator_agent
+    
+    # Handle session
+    if request.session_id:
+        try:
+            sid = uuid.UUID(request.session_id)
+        except ValueError:
+            raise HTTPException(400, "Invalid session_id format")
+    else:
+        sid = uuid.uuid4()
+    
+    # Load session history and context (same as regular endpoint)
+    try:
+        session = await session_manager.get_session(sid)
+        history = session["messages"] if session else []
+    except Exception as e:
+        logging.error(f"Database connection error when loading session {sid}: {e}")
+        history = []
+    
+    shared_context = {}
+    if request.use_shared_context:
+        try:
+            shared_context = await context_manager.get_context(sid) or {}
+        except Exception as e:
+            logging.error(f"Database connection error when loading context for session {sid}: {e}")
+            shared_context = {}
+        
+        if request.user_data:
+            normalized_user_data = normalize_user_data(request.user_data)
+            shared_context.update(normalized_user_data)
+    
+    request.session_id = str(sid)
+    
+    async def generate_stream():
+        """Generate streaming response chunks"""
+        response = None
+        try:
+            # Send session ID first
+            yield f"data: {json.dumps({'session_id': str(sid)})}\n\n"
+            
+            # Process the request
+            response = await agent.process(request, history, shared_context)
+            
+            # Post-process the output (same as regular endpoint)
+            output = response.output
+            
+            # Stream the output word by word for better UX
+            words = output.split(' ')
+            for i, word in enumerate(words):
+                chunk = word + (' ' if i < len(words) - 1 else '')
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                await asyncio.sleep(0.01)  # Small delay for smooth streaming (10ms per word)
+            
+            # Send done signal
+            yield f"data: {json.dumps({'done': True})}\n\n"
+            
+            # Save session and context (same as regular endpoint)
+            if response:
+                try:
+                    new_history = response.metadata.get("history", history)
+                    await session_manager.upsert_session(
+                        sid,
+                        new_history,
+                        agent_key,
+                        metadata={"last_agent": agent_key}
+                    )
+                    if response.context_updates:
+                        await context_manager.merge_context(
+                            sid,
+                            response.context_updates,
+                            agent_type=agent_key
+                        )
+                except Exception as e:
+                    logging.error(f"Error saving session/context: {e}")
+                
+        except Exception as e:
+            logging.error(f"Streaming error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @app.delete("/session/{session_id}", tags=["Sessions"])
 async def delete_session(session_id: str):
