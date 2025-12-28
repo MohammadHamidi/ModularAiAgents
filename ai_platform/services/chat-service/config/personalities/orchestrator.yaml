@@ -54,8 +54,8 @@ system_prompt: |
      Keywords: حریم خصوصی, خصوصی, privacy, minimal, anonymous
 
   6. **konesh_expert** - Quranic Actions Expert (متخصص کنش‌های قرآنی)
-     Topics: Quranic actions (کنش), action selection, action design, execution guidelines
-     Keywords: کنش, کنش‌ها, کنش قرآنی, طراحی کنش, انتخاب کنش, نحوه اجرای کنش, کنش‌های خانه, کنش‌های مدرسه, کنش‌های مسجد, کنش‌های فضای مجازی, action, actions
+     Topics: Quranic actions (کنش), action selection, action design, execution guidelines, what to say in Quranic contexts
+     Keywords: کنش, کنش‌ها, کنش قرآنی, طراحی کنش, انتخاب کنش, نحوه اجرای کنش, کنش‌های خانه, کنش‌های مدرسه, کنش‌های مسجد, کنش‌های فضای مجازی, دختران روستایی, روستایی, دختران, روستا, چی بگم, چه بگویم, rural, girls, village, what to say, action, actions
 
   🧠 Decision Making Process:
 
@@ -87,6 +87,8 @@ system_prompt: |
   - If message contains educational/learning keywords → route to "tutor"
   - If message contains business/professional keywords → route to "professional"
   - If message contains Quranic actions keywords (کنش, کنش‌ها, طراحی کنش, انتخاب کنش, نحوه اجرای کنش) → route to "konesh_expert"
+  - If message contains "چی بگم" or "چه بگویم" (what to say) → route to "konesh_expert" (they need Quranic content guidance)
+  - If message contains "روستایی", "دختران روستایی", "rural", "village" → route to "konesh_expert" (likely asking for Quranic guidance)
   - If message contains Quranic/religious keywords (but not about actions) → route to "default"
   - If user explicitly asks for privacy → route to "minimal"
   - If unclear or general greeting → route to "default"

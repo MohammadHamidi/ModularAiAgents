@@ -576,6 +576,37 @@ Returns:
         
         return cleaned
     
+    def _validate_konesh_scope(self, user_message: str, output: str) -> str:
+        """
+        Validate that konesh_expert responses are within scope.
+        If out of scope detected, return rejection message.
+        """
+        # Only apply to konesh_expert agent
+        if not hasattr(self, 'agent_config') or not self.agent_config:
+            return output
+        
+        agent_name = getattr(self.agent_config, 'agent_name', '')
+        if agent_name != "متخصص کنش‌های قرآنی سفیران آیه‌ها":
+            return output  # Only applies to konesh_expert
+        
+        # Check if query contains konesh-related keywords
+        konesh_keywords = ["کنش", "محفل", "صبحگاه", "فضاسازی", "مسجد", "مدرسه", "خانه"]
+        query_lower = user_message.lower()
+        
+        has_konesh_context = any(kw in query_lower for kw in konesh_keywords)
+        
+        # If no konesh context, return rejection
+        if not has_konesh_context:
+            return """من متخصص کنش‌های قرآنی سفیران آیه‌ها هستم و فقط می‌تونم در مورد انتخاب، طراحی و اجرای کنش‌ها کمکت کنم.
+
+اگه می‌خوای برای این موقعیت یه کنش یا محفل قرآنی برگزار کنی، خوشحال می‌شم راهنماییت کنم! 😊
+
+پیشنهادهای بعدی:
+1) بگو چه بستری در اختیار داری (خانه، مدرسه، مسجد، فضای مجازی)
+2) بگو نقشت چیه (معلم، دانش‌آموز، والد، مبلغ)"""
+        
+        return output
+    
     def _convert_suggestions_to_user_perspective(self, output: str) -> str:
         """Convert any AI-perspective suggestions in the output to user perspective."""
         # Find the suggestions section
@@ -678,6 +709,9 @@ Returns:
             deps=deps,
         )
         assistant_output = result.output
+        
+        # Post-process: Validate konesh scope (must be before other post-processing)
+        assistant_output = self._validate_konesh_scope(request.message, assistant_output)
         
         # Post-process: Remove unwanted extra text/paragraphs
         assistant_output = self._remove_unwanted_extra_text(assistant_output)

@@ -380,6 +380,28 @@ async def health():
         "message": "Service is running and ready to accept requests"
     }
 
+@app.get("/health/stream", tags=["Health"])
+async def health_stream():
+    """
+    Streaming endpoint health check.
+    
+    Tests if the streaming infrastructure is working correctly.
+    Returns a simple SSE stream to verify connectivity.
+    """
+    async def test_stream():
+        yield f"data: {json.dumps({'status': 'ok', 'message': 'Streaming endpoint is working'})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
+    
+    return StreamingResponse(
+        test_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
 @app.get("/agents", tags=["Agents"])
 async def list_agents():
     """
@@ -1093,6 +1115,9 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     """
     import asyncio
     
+    logging.info(f"Streaming request received for agent_key: {agent_key}, session_id: {request.session_id}")
+    logging.info(f"Available agents: {list(AGENTS.keys())}")
+    
     # Use the same routing logic as regular chat endpoint
     if "orchestrator" not in AGENTS:
         if agent_key not in AGENTS:
@@ -1150,11 +1175,15 @@ async def chat_stream(agent_key: str, request: AgentRequest):
         """Generate streaming response chunks"""
         response = None
         try:
+            logging.info(f"Starting stream generation for agent: {agent_key}, session: {sid}")
+            
             # Send session ID first
             yield f"data: {json.dumps({'session_id': str(sid)})}\n\n"
             
             # Process the request
+            logging.info(f"Processing request with agent: {agent_key}")
             response = await agent.process(request, history, shared_context)
+            logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
             
             # Post-process the output (same as regular endpoint)
             output = response.output
