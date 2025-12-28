@@ -161,10 +161,12 @@ def register_agent(key: str, agent_class, config: dict, full_config=None):
 @app.on_event("startup")
 async def startup():
     global session_manager, context_manager, http_client, agent_full_config
-    
+
+    logging.info("Starting chat service initialization...")
+
     # Initialize managers
     db_url = os.getenv("DATABASE_URL")
-    
+
     # Validate DATABASE_URL
     if not db_url:
         logging.error("DATABASE_URL environment variable is not set!")
@@ -341,27 +343,41 @@ Do not add advice, suggestions, or extra content.
     for key, agent in AGENTS.items():
         await agent.initialize(http_client=http_client)
     
-    logging.info(f"Initialized {len(AGENTS)} agents: {list(AGENTS.keys())}")
+        logging.info(f"Initialized {len(AGENTS)} agents: {list(AGENTS.keys())}")
 
-    # Debug log: startup completed and agents registered
-    _agent_debug_log(
-        hypothesis_id="H1",
-        location="services/chat-service/main.py:startup",
-        message="startup completed",
-        data={"agents": list(AGENTS.keys())},
-    )
+        # Debug log: startup completed and agents registered
+        logging.info(f"Chat service startup completed successfully! Loaded {len(AGENTS)} agents: {list(AGENTS.keys())}")
+
+        # Set startup completion flag
+        app.state.startup_completed = True
+
+        _agent_debug_log(
+            hypothesis_id="H1",
+            location="services/chat-service/main.py:startup",
+            message="startup completed",
+            data={"agents": list(AGENTS.keys())},
+        )
+
+    # Set startup completion flag
+    app.state.startup_completed = True
 
 @app.get("/health", tags=["Health"])
 async def health():
     """
     Chat service health check.
-    
+
     Returns the health status of the chat service and list of available agents.
+    Service is considered healthy if it's running and can accept requests,
+    regardless of agent loading status.
     """
+    agents_list = list(AGENTS.keys()) if AGENTS else []
+
     return {
-        "status": "healthy",
+        "status": "healthy",  # Always healthy if service is responding
         "service": "chat",
-        "agents": list(AGENTS.keys())
+        "agents": agents_list,
+        "agent_count": len(agents_list),
+        "message": "Service is running and ready to accept requests"
     }
 
 @app.get("/agents", tags=["Agents"])
@@ -1135,9 +1151,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
         response = None
         try:
             # Send session ID first
-            yield f"data: {json.dumps({'session_id': str(sid)})}
-
-"
+            yield f"data: {json.dumps({'session_id': str(sid)})}\n\n"
             
             # Process the request
             response = await agent.process(request, history, shared_context)
@@ -1149,15 +1163,11 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             words = output.split(" ")
             for i, word in enumerate(words):
                 chunk = word + (" " if i < len(words) - 1 else "")
-                yield f"data: {json.dumps({'chunk': chunk})}
-
-"
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
                 await asyncio.sleep(0.01)  # Small delay for smooth streaming (10ms per word)
             
             # Send done signal
-            yield f"data: {json.dumps({'done': True})}
-
-"
+            yield f"data: {json.dumps({'done': True})}\n\n"
             
             # Save session and context (same as regular endpoint)
             if response:
@@ -1180,9 +1190,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
                 
         except Exception as e:
             logging.error(f"Streaming error: {e}", exc_info=True)
-            yield f"data: {json.dumps({'error': str(e)})}
-
-"
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
     
     return StreamingResponse(
         generate_stream(),
