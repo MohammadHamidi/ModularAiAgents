@@ -1,6 +1,7 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -237,6 +238,53 @@ async def chat(agent_key: str, request: ChatRequest):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.post("/chat/{agent_key}/stream", tags=["Chat"])
+async def chat_stream(agent_key: str, request: ChatRequest):
+    """
+    Stream a message to an AI agent (Server-Sent Events).
+    
+    Forwards streaming requests to the chat-service and streams the response
+    back to the client as Server-Sent Events (SSE).
+    
+    - **agent_key**: The identifier of the agent (e.g., 'orchestrator', 'default', 'tutor')
+    - **request**: JSON body containing message, session_id, user_data, etc.
+    
+    Returns a streaming response with SSE format.
+    """
+    async def forward_stream():
+        """Forward stream from chat-service to client"""
+        # Create client with longer timeout for streaming
+        # The context manager will stay open as long as the generator is active
+        async with httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=300.0) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    f"/chat/{agent_key}/stream",
+                    json=request.dict()
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+            except httpx.HTTPStatusError as e:
+                # For HTTP errors, try to read the error response
+                try:
+                    error_msg = (await e.response.aread()).decode() if e.response else str(e)
+                except Exception:
+                    error_msg = str(e)
+                yield f"data: {json.dumps({'error': error_msg})}\n\n".encode()
+            except httpx.RequestError as e:
+                yield f"data: {json.dumps({'error': f'Chat service unavailable: {str(e)}'})}\n\n".encode()
+    
+    return StreamingResponse(
+        forward_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @app.get("/session/{session_id}/context", tags=["Sessions"])
 async def get_session_context(session_id: str):
