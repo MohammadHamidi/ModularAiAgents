@@ -501,6 +501,52 @@ Returns:
 
         return "\n\n".join(parts)
     
+    def _remove_unwanted_extra_text(self, output: str) -> str:
+        """
+        Remove unwanted extra explanatory text/paragraphs that LLM sometimes adds.
+        These are generic phrases that don't add value and should be removed.
+        """
+        import re
+        
+        # Find the suggestions section to preserve it
+        suggestions_match = re.search(r'(پیشنهادهای بعدی:|Next actions:)[\s\S]*$', output, re.IGNORECASE)
+        suggestions_section = suggestions_match.group(0) if suggestions_match else None
+        main_content = output[:suggestions_match.start()] if suggestions_match else output
+        
+        # Patterns of unwanted text that should be removed (before suggestions section)
+        unwanted_patterns = [
+            # Generic introductory phrases
+            r'پرسش کلیدی و مهمی مطرح کردید[^\n]*',
+            r'پرسش[^\n]*مهمی[^\n]*مطرح[^\n]*',
+            r'بر اساس تجربه نهضت[^\n]*',
+            r'برای اینکه صحبت شما[^\n]*',
+            r'این یک سوال مهم است[^\n]*',
+            r'لازم است محتوای انتخابی شما[^\n]*',
+            r'اصول تربیت[^\n]*',
+            r'موارد زیر می‌توانند[^\n]*',
+            # Remove entire paragraphs that start with these phrases
+            r'\n\s*پرسش[^\n]*مهم[^\n]*مطرح[^\n]*\s*\n+',
+            r'\n\s*بر اساس تجربه[^\n]*\s*\n+',
+            r'\n\s*برای اینکه[^\n]*تأثیرگذار[^\n]*\s*\n+',
+            r'\n\s*لازم است[^\n]*\s*\n+',
+        ]
+        
+        cleaned = main_content
+        for pattern in unwanted_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.MULTILINE | re.IGNORECASE | re.DOTALL)
+        
+        # Remove multiple consecutive newlines (clean up spacing)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        
+        # Trim whitespace
+        cleaned = cleaned.strip()
+        
+        # Reattach suggestions section if it existed
+        if suggestions_section:
+            cleaned = cleaned + '\n\n' + suggestions_section
+        
+        return cleaned
+    
     def _convert_suggestions_to_user_perspective(self, output: str) -> str:
         """Convert any AI-perspective suggestions in the output to user perspective."""
         # Find the suggestions section
@@ -603,6 +649,9 @@ Returns:
             deps=deps,
         )
         assistant_output = result.output
+        
+        # Post-process: Remove unwanted extra text/paragraphs
+        assistant_output = self._remove_unwanted_extra_text(assistant_output)
         
         # Post-process: Convert AI-perspective suggestions to user perspective
         assistant_output = self._convert_suggestions_to_user_perspective(assistant_output)
