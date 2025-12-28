@@ -195,7 +195,7 @@ context_display:
 
 recent_messages_context:
   enabled: true
-  count: 2
+  count: 4 # Number of recent user messages to include (increased from 2)
   max_length: 150
   header: "💬 Recent Messages:"
 
