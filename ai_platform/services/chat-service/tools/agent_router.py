@@ -33,15 +33,15 @@ class AgentRouterTool(Tool):
 
         Parameters:
         - agent_key (str, required): The key of the specialist agent to route to.
-          Available agents: 'doctor', 'tutor', 'professional', 'default', 'minimal', 'konesh_expert'
+          Available agents: 'guest_faq', 'action_expert', 'journey_register', 'rewards_invite'
         - user_message (str, required): The user's original message to forward
         - session_id (str, optional): Session ID for maintaining context
 
         Examples:
-        - route_to_agent(agent_key="doctor", user_message="سلام، سردرد دارم")
-        - route_to_agent(agent_key="tutor", user_message="Help me with math homework")
-        - route_to_agent(agent_key="default", user_message="درباره آیه 12 بگو")
-        - route_to_agent(agent_key="konesh_expert", user_message="کنش‌های مدرسه چیه؟")
+        - route_to_agent(agent_key="guest_faq", user_message="سفیر چیه؟")
+        - route_to_agent(agent_key="action_expert", user_message="برای دختران روستایی چی بگم؟")
+        - route_to_agent(agent_key="journey_register", user_message="می‌خوام ثبتش کنم")
+        - route_to_agent(agent_key="rewards_invite", user_message="جوایز چیه؟")
 
         Returns: The specialist agent's response as a string
         """,
