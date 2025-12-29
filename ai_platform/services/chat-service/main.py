@@ -1228,7 +1228,12 @@ async def chat_stream(agent_key: str, request: AgentRequest):
                 
         except Exception as e:
             logging.error(f"Streaming error: {e}", exc_info=True)
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            error_message = str(e)
+            # Extract more details from ModelHTTPError
+            if hasattr(e, 'status_code') and hasattr(e, 'body'):
+                error_message = f"API Error {e.status_code}: {e.body.get('message', str(e)) if isinstance(e.body, dict) else str(e)}"
+            yield f"data: {json.dumps({'error': error_message})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
     
     return StreamingResponse(
         generate_stream(),
