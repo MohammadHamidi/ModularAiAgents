@@ -32,14 +32,14 @@
             }
         }
 
-        /* Improved typing indicator with smooth animation */
+        /* Enhanced typing indicator with smooth animation */
         .typing-indicator {
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
-        .typing-indicator span {
+        .typing-indicator span:not(.typing-text) {
             width: 8px;
             height: 8px;
             border-radius: 50%;
@@ -71,18 +71,14 @@
             }
         }
 
-        /* Pulsing animation for typing text */
+        /* Smooth fade animation for typing text */
         .typing-text {
-            animation: pulse 1.5s ease-in-out infinite;
+            transition: opacity 0.3s ease-in-out;
+            white-space: nowrap;
         }
 
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 0.6;
-            }
-            50% {
-                opacity: 1;
-            }
+        .typing-text.fade {
+            opacity: 0.5;
         }
 
         /* ===== Screenshot-matched welcome bubble glow ===== */
@@ -677,6 +673,18 @@
 
         const aiClient = new SafiranAIClient();
 
+        // Array of loading messages in Persian
+        const LOADING_MESSAGES = [
+            'جمع‌آوری اطلاعات',
+            'تحلیل داده‌ها',
+            'پردازش درخواست',
+            'در حال پاسخ',
+            'بررسی منابع',
+            'آماده‌سازی پاسخ'
+        ];
+
+        let typingMessageInterval = null;
+
         // DOM
         const chatContainer = document.getElementById('chatContainer');
         const messageInput = document.getElementById('messageInput');
@@ -820,26 +828,49 @@
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        // Typing indicator with improved animation
+        // Typing indicator with rotating messages
         function showTyping() {
             const typingDiv = document.createElement('div');
             typingDiv.id = 'typingIndicator';
             typingDiv.className = 'flex justify-end message-enter';
+
+            // Random initial message
+            const initialMessage = LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)];
+
             typingDiv.innerHTML = `
         <div class="bg-white rounded-[20px] rounded-tl-[6px] px-4 py-3 sm:px-5 sm:py-4 shadow-sm">
           <div class="typing-indicator">
             <span></span>
             <span></span>
             <span></span>
-            <span class="typing-text text-[13px] sm:text-[12px] text-gray-500" style="margin-right: 8px;">در حال پاسخ...</span>
+            <span class="typing-text text-[13px] sm:text-[12px] text-gray-500" id="typingMessage">${initialMessage}...</span>
           </div>
         </div>
       `;
             chatContainer.appendChild(typingDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            // Rotate messages every 2 seconds
+            typingMessageInterval = setInterval(() => {
+                const messageElement = document.getElementById('typingMessage');
+                if (messageElement) {
+                    const randomMessage = LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)];
+                    // Fade out
+                    messageElement.classList.add('fade');
+                    setTimeout(() => {
+                        messageElement.textContent = randomMessage + '...';
+                        // Fade in
+                        messageElement.classList.remove('fade');
+                    }, 150);
+                }
+            }, 2000);
         }
 
         function hideTyping() {
+            if (typingMessageInterval) {
+                clearInterval(typingMessageInterval);
+                typingMessageInterval = null;
+            }
             document.getElementById('typingIndicator')?.remove();
         }
 
