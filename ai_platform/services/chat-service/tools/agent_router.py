@@ -70,16 +70,20 @@ class AgentRouterTool(Tool):
         self,
         agent_key: str,
         user_message: str,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        history: Optional[list] = None,
+        shared_context: Optional[dict] = None
     ) -> str:
         """Execute method for Tool interface - delegates to run()."""
-        return await self.run(agent_key, user_message, session_id)
+        return await self.run(agent_key, user_message, session_id, history, shared_context)
 
     async def run(
         self,
         agent_key: str,
         user_message: str,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        history: Optional[list] = None,
+        shared_context: Optional[dict] = None
     ) -> str:
         """
         Route the request to a specialist agent
@@ -88,6 +92,8 @@ class AgentRouterTool(Tool):
             agent_key: Key of the target agent
             user_message: User's message to forward
             session_id: Optional session ID
+            history: Conversation history to pass to specialist agent
+            shared_context: Shared context to pass to specialist agent
 
         Returns:
             Specialist agent's response
@@ -116,8 +122,12 @@ class AgentRouterTool(Tool):
                 use_shared_context=True
             )
 
-            # Use process() method for ChatAgent (empty history and context for routed requests)
-            response = await specialist_agent.process(request, history=[], shared_context={})
+            # Use process() method for ChatAgent (pass history and context to maintain session memory)
+            response = await specialist_agent.process(
+                request,
+                history=history or [],
+                shared_context=shared_context or {}
+            )
 
             logger.info(f"Received response from agent '{agent_key}': {len(response.output)} chars")
 
@@ -128,7 +138,14 @@ class AgentRouterTool(Tool):
             logger.error(f"Error routing to agent '{agent_key}': {e}", exc_info=True)
             return f"❌ خطا در ارجاع به متخصص: {str(e)}\n\nلطفاً دوباره تلاش کنید."
 
-    def run_sync(self, agent_key: str, user_message: str, session_id: Optional[str] = None) -> str:
+    def run_sync(
+        self,
+        agent_key: str,
+        user_message: str,
+        session_id: Optional[str] = None,
+        history: Optional[list] = None,
+        shared_context: Optional[dict] = None
+    ) -> str:
         """
         Synchronous version of run (for compatibility)
 
@@ -141,7 +158,7 @@ class AgentRouterTool(Tool):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        return loop.run_until_complete(self.run(agent_key, user_message, session_id))
+        return loop.run_until_complete(self.run(agent_key, user_message, session_id, history, shared_context))
 
 
 class AgentRouterToolSync:
@@ -158,7 +175,14 @@ class AgentRouterToolSync:
     def description(self) -> str:
         return self.router.description
 
-    def run(self, agent_key: str, user_message: str, session_id: Optional[str] = None) -> str:
+    def run(
+        self,
+        agent_key: str,
+        user_message: str,
+        session_id: Optional[str] = None,
+        history: Optional[list] = None,
+        shared_context: Optional[dict] = None
+    ) -> str:
         """
         Route the request to a specialist agent (synchronous)
 
@@ -175,9 +199,9 @@ class AgentRouterToolSync:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
                     asyncio.run,
-                    self.router.run(agent_key, user_message, session_id)
+                    self.router.run(agent_key, user_message, session_id, history, shared_context)
                 )
                 return future.result()
         except RuntimeError:
             # No event loop running, we can use asyncio.run directly
-            return asyncio.run(self.router.run(agent_key, user_message, session_id))
+            return asyncio.run(self.router.run(agent_key, user_message, session_id, history, shared_context))
