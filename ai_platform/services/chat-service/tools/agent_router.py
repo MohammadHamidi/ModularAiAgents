@@ -127,9 +127,11 @@ class AgentRouterTool(Tool):
             )
 
             # Use process() method for ChatAgent (pass history and context to maintain session memory)
+            history_to_pass = history or []
+            logger.info(f"agent_router.run: Passing {len(history_to_pass)} history messages to specialist agent '{agent_key}'")
             response = await specialist_agent.process(
                 request,
-                history=history or [],
+                history=history_to_pass,
                 shared_context=shared_context or {}
             )
 

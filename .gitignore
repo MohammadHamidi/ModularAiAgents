@@ -9,3 +9,26 @@ Thumbs.db
 
 # Logs
 *.log
+# IDE and Editor files
+.cursor/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files (at any level)
+**/.env
+**/.env.example
+ai_platform/rebuild_and_test.bat
+ai_platform/REBUILD_AND_TEST.md
+ai_platform/services/chat-service/main.py
+ai_platform/SESSION_MEMORY_STATUS.md
+ai_platform/test_db_connection.py
+ai_platform/test_session_memory.py
+ai_platform/.env
+ai_platform/.env

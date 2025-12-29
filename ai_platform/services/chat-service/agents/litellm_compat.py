@@ -24,7 +24,13 @@ async def rewrite_service_tier(resp: httpx.Response):
         req_body = json.loads(resp.request.content)
         has_tools = "tools" in req_body
         tool_count = len(req_body.get("tools", []))
-        print(f"[HOOK] REQUEST has_tools={has_tools} tool_count={tool_count}", flush=True)
+        message_count = len(req_body.get("messages", []))
+        print(f"[HOOK] REQUEST has_tools={has_tools} tool_count={tool_count} message_count={message_count}", flush=True)
+        # Log message roles to debug history
+        messages = req_body.get("messages", [])
+        if messages:
+            roles = [f"{m.get('role', '?')}" for m in messages]
+            print(f"[HOOK] MESSAGE_ROLES: {roles}", flush=True)
         if has_tools:
             for t in req_body.get("tools", []):
                 fn = t.get("function", {})

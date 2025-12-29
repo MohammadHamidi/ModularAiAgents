@@ -636,6 +636,7 @@ async def chat(agent_key: str, request: AgentRequest):
     try:
         session = await session_manager.get_session(sid)
         history = session["messages"] if session else []
+        logging.info(f"Loaded history for session {sid}: {len(history)} messages")
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
         # Continue with empty history if database is unavailable
@@ -1154,7 +1155,10 @@ async def chat_stream(agent_key: str, request: AgentRequest):
         history = session["messages"] if session else []
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
+        # Continue with empty history if database is unavailable
+        # This allows the service to work even if database has temporary issues
         history = []
+        logging.warning("Continuing with empty history due to database error")
     
     shared_context = {}
     if request.use_shared_context:
@@ -1162,6 +1166,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             shared_context = await context_manager.get_context(sid) or {}
         except Exception as e:
             logging.error(f"Database connection error when loading context for session {sid}: {e}")
+            logging.warning("Continuing with empty context due to database error")
             shared_context = {}
         
         if request.user_data:
@@ -1208,13 +1213,18 @@ async def chat_stream(agent_key: str, request: AgentRequest):
                         metadata={"last_agent": agent_key}
                     )
                     if response.context_updates:
-                        await context_manager.merge_context(
-                            sid,
-                            response.context_updates,
-                            agent_type=agent_key
-                        )
+                        try:
+                            await context_manager.merge_context(
+                                sid,
+                                response.context_updates,
+                                agent_type=agent_key
+                            )
+                        except Exception as e:
+                            logging.error(f"Database connection error when saving context for session {sid}: {e}")
+                            logging.warning("Context not persisted due to database error, but response sent successfully")
                 except Exception as e:
-                    logging.error(f"Error saving session/context: {e}")
+                    logging.error(f"Database connection error when saving session {sid}: {e}")
+                    logging.warning("Session not persisted due to database error, but response sent successfully")
                 
         except Exception as e:
             logging.error(f"Streaming error: {e}", exc_info=True)

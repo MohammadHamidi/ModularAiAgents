@@ -268,6 +268,7 @@ Returns:
             ) -> str:
                 """Route a user request to a specialist agent."""
                 # Use run() method for AgentRouterTool
+                logger.info(f"route_tool: Passing history to specialist '{agent_key}': {len(ctx.deps.history)} messages")
                 if hasattr(tool_ref, 'run'):
                     result = await tool_ref.run(
                         agent_key=agent_key,
@@ -425,18 +426,26 @@ Returns:
 
     def _convert_history(
         self, history: Optional[List[Dict[str, Any]]]
-    ) -> List[Dict[str, Any]]:
-        """Convert stored history dicts into simple role/content dicts."""
+    ):
+        """Convert stored history dicts into pydantic-ai ModelMessage objects."""
         if not history:
             return []
 
-        converted: List[Dict[str, Any]] = []
+        from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart, TextPart, RequestUsage
+        
+        converted = []
         for msg in history:
             role = msg.get("role") or "user"
             content = msg.get("content") or ""
             if not content:
                 continue
-            converted.append({"role": role, "content": content})
+            
+            # Convert to proper pydantic-ai message objects
+            if role == "user":
+                converted.append(ModelRequest(parts=[UserPromptPart(content=content)]))
+            elif role == "assistant":
+                converted.append(ModelResponse(parts=[TextPart(content=content)], usage=RequestUsage()))
+        
         return converted
 
     def _get_dynamic_field_instructions(self) -> str:
@@ -673,7 +682,10 @@ Returns:
         shared_context: Optional[Dict[str, Any]] = None,
     ) -> AgentResponse:
         # Convert persisted history into pydantic_ai format
+        history_len = len(history) if history else 0
+        logger.info(f"Processing request for session {request.session_id}: received history with {history_len} messages")
         message_history = self._convert_history(history)
+        logger.info(f"Converted history to message_history with {len(message_history)} pydantic-ai messages")
 
         # Get last N user messages for context
         recent_config = self.agent_config.recent_messages_context
@@ -688,12 +700,11 @@ Returns:
             last_user_messages
         )
 
-        # Insert system message at the beginning
+        # System prompt is set in the Agent at initialization, not in message_history
+        # message_history should only contain user and assistant messages (ModelRequest/ModelResponse objects)
+        # Update the agent's system prompt dynamically
         if dynamic_system_prompt:
-            if not message_history or message_history[0].get("role") != "system":
-                message_history.insert(0, {"role": "system", "content": dynamic_system_prompt})
-            else:
-                message_history[0]["content"] = dynamic_system_prompt
+            self.agent._system_prompt = dynamic_system_prompt
 
         # Prepare dependencies for tools
         pending_updates: Dict[str, Any] = {}
@@ -723,6 +734,7 @@ Returns:
                 user_message = f"<internal_context>{context_summary}</internal_context>\n{user_message}"
 
         # Run the agent with tool support
+        logger.info(f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history")
         result = await self.agent.run(
             user_message,
             message_history=message_history,
