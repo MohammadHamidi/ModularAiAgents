@@ -777,107 +777,142 @@ Returns:
             r"پیشنهادهای بعدی\s*:",
             r"Next actions\s*:",
         ]
-        
+
         has_suggestions = any(re.search(pattern, output, re.IGNORECASE) for pattern in suggestions_patterns)
-        
+
         if has_suggestions:
             return output
-        
-        # Generate contextual suggestions
+
+        # Generate contextual suggestions based on KB content and conversation flow
         suggestions = []
-        
+
         # Check if KB was queried
         kb_result = tool_results.get("knowledge_base_query")
         if kb_result:
-            # Extract concepts from KB result to generate contextual suggestions
+            # Extract deep context from KB result
             kb_text = str(kb_result).lower()
-            
-            # Extract specific topics mentioned in KB
-            mentioned_topics = []
-            if "کنش" in kb_text:
-                # Extract specific action types mentioned
-                if "مدرسه" in kb_text:
-                    mentioned_topics.append("کنش‌های مدرسه")
-                if "خانه" in kb_text or "خانگی" in kb_text:
-                    mentioned_topics.append("کنش‌های خانه")
-                if "مسجد" in kb_text:
-                    mentioned_topics.append("کنش‌های مسجد")
-                if "فضای مجازی" in kb_text or "مجازی" in kb_text:
-                    mentioned_topics.append("کنش‌های فضای مجازی")
-            
-            # Generate specific suggestions based on what was mentioned (from user's perspective)
-            if mentioned_topics:
-                # Suggest topics that weren't mentioned (user perspective)
-                all_topics = ["کنش‌های مدرسه", "کنش‌های خانه", "کنش‌های مسجد", "کنش‌های فضای مجازی"]
-                unmentioned = [t for t in all_topics if t not in mentioned_topics]
-                if unmentioned:
-                    suggestions.append(f"درباره {unmentioned[0]} بیشتر بدانم")
-            
-            # If actions were mentioned, suggest starting one (user perspective)
-            if "کنش" in kb_text:
-                suggestions.append("چطور یک کنش رو شروع کنم؟")
-            
-            # If verses were mentioned, suggest related verses (user perspective)
-            if "آیه" in kb_text:
-                # Try to extract verse numbers if mentioned
-                verse_numbers = re.findall(r'آیه\s*(\d+)', kb_text)
-                if verse_numbers:
-                    suggestions.append(f"درباره آیه {verse_numbers[0]} بیشتر بدانم")
-                else:
-                    suggestions.append("آیه‌های مرتبط")
-            
-            # If ambassador role was mentioned, suggest action details (user perspective)
-            if "سفیر" in kb_text:
-                suggestions.append("نحوه انجام کنش‌ها به عنوان سفیر")
-            
-            # Generic KB-based suggestions if we don't have enough (user perspective)
-            if len(suggestions) < 2:
-                # Extract any key terms from KB
-                key_terms = []
-                if "محفل" in kb_text:
-                    key_terms.append("محافل")
-                if "کلیپ" in kb_text:
-                    key_terms.append("کلیپ آیه")
-                if "گزارش" in kb_text:
-                    key_terms.append("ثبت گزارش کنش")
-                
-                if key_terms:
-                    suggestions.append(f"درباره {key_terms[0]} بیشتر بدانم")
-                else:
-                    suggestions.append("موضوعات مرتبط")
-        
-        # Add default suggestions if we don't have enough KB-based ones (user perspective)
+            output_lower = output.lower()
+
+            # Extract specific entities and concepts mentioned in the response
+            # This helps create suggestions that follow the conversation naturally
+
+            # For action-related content
+            if "کنش" in output_lower or "کنش" in kb_text:
+                # Check for specific action types mentioned in the actual response
+                action_types_in_response = []
+                if "مدرسه" in output_lower:
+                    action_types_in_response.append("مدرسه")
+                if "خانه" in output_lower or "خانگی" in output_lower:
+                    action_types_in_response.append("خانه")
+                if "مسجد" in output_lower:
+                    action_types_in_response.append("مسجد")
+                if "محفل" in output_lower:
+                    action_types_in_response.append("محفل")
+                if "فضای مجازی" in output_lower or "مجازی" in output_lower:
+                    action_types_in_response.append("فضای مجازی")
+
+                # Generate deep-dive suggestions based on what was actually discussed
+                if action_types_in_response:
+                    first_type = action_types_in_response[0]
+                    if first_type == "محفل":
+                        suggestions.append("نحوه برگزاری محفل خانگی")
+                        suggestions.append("آیه‌های مناسب برای محفل")
+                    elif first_type == "مدرسه":
+                        suggestions.append("نحوه اجرای کنش در مدرسه")
+                        if "معرفی" in output_lower or "تبلیغ" in output_lower:
+                            suggestions.append("راهکارهای تبلیغ در محیط مدرسه")
+                    elif first_type == "خانه":
+                        suggestions.append("ایده‌های کنش خانگی")
+                        suggestions.append("درگیر کردن خانواده در کنش‌ها")
+                    elif first_type == "مسجد":
+                        suggestions.append("هماهنگی با مسئولین مسجد")
+                    elif first_type == "فضای مجازی":
+                        suggestions.append("ایده‌های محتوای مجازی")
+                        suggestions.append("پلتفرم‌های مناسب برای تبلیغ")
+
+            # For ambassador/safir-related content
+            if "سفیر" in output_lower:
+                if "نقش" in output_lower or "وظیفه" in output_lower or "مسئولیت" in output_lower:
+                    suggestions.append("چالش‌های سفیران")
+                    suggestions.append("حمایت‌های سازمان از سفیران")
+                elif "شروع" in user_message.lower() or "فعالیت" in output_lower:
+                    suggestions.append("اولین قدم‌های یک سفیر")
+                    suggestions.append("دریافت پشتیبانی و آموزش")
+
+            # For verse-related content (only if specific verses are mentioned)
+            verse_numbers = re.findall(r'آیه\s*(\d+)', output_lower)
+            if verse_numbers and len(verse_numbers) > 0:
+                # Only suggest verses if we found specific verse numbers
+                suggestions.append(f"تفسیر آیه {verse_numbers[0]}")
+                if len(verse_numbers) > 1:
+                    suggestions.append(f"ارتباط آیه {verse_numbers[0]} با آیه {verse_numbers[1]}")
+
+            # Extract key phrases and concepts from the actual response for contextual suggestions
+            if "ثبت" in output_lower and "گزارش" in output_lower:
+                suggestions.append("نحوه ثبت گزارش کنش")
+            if "امتیاز" in output_lower or "پاداش" in output_lower:
+                suggestions.append("سیستم امتیازدهی سفیران")
+            if "تیم" in output_lower or "گروه" in output_lower:
+                suggestions.append("همکاری تیمی در انجام کنش‌ها")
+            if "پیگیری" in output_lower or "ارزیابی" in output_lower:
+                suggestions.append("بررسی نتایج و اثرگذاری کنش‌ها")
+
+        # If we still don't have enough suggestions, analyze the user's question more deeply
         if len(suggestions) < 2:
-            # Analyze user message for topic
             user_lower = user_message.lower()
-            if "آیه" in user_lower:
-                suggestions.append("آیه‌های مرتبط")
-                suggestions.append("شروع کنش مرتبط")
-            elif "کنش" in user_lower:
-                suggestions.append("آیه‌های مرتبط با این کنش‌ها")
-                suggestions.append("چطور این کنش رو انجام دهم؟")
+            output_lower = output.lower()
+
+            # Generate context-aware follow-ups based on question type
+            if any(word in user_lower for word in ["چطور", "چگونه", "نحوه"]):
+                # User asked "how" - suggest practical next steps
+                if "گزارش" in output_lower:
+                    suggestions.append("نمونه گزارش موفق")
+                if "کنش" in output_lower:
+                    suggestions.append("تجربیات سفیران دیگر")
+            elif any(word in user_lower for word in ["چیست", "چیه", "یعنی چی", "منظور"]):
+                # User asked "what" - suggest related concepts
+                if "سفیر" in output_lower:
+                    suggestions.append("تفاوت سفیر با سایر نقش‌ها")
+                if "کنش" in output_lower:
+                    suggestions.append("انواع مختلف کنش‌ها")
+
+        # Only add minimal fallback if absolutely necessary (no suggestions at all)
+        if len(suggestions) == 0:
+            # Use the output content to generate at least one contextual suggestion
+            output_lower = output.lower()
+            if "سفیر" in output_lower:
+                suggestions.append("سوالات بیشتر درباره نقش سفیران")
+            elif "کنش" in output_lower:
+                suggestions.append("سوالات بیشتر درباره کنش‌ها")
             else:
-                suggestions.append("موضوعات مرتبط")
-                suggestions.append("ادامه")
-        
-        # Ensure we have 2-4 suggestions (user perspective)
-        while len(suggestions) < 2:
-            suggestions.append("سوالات بیشتر")
-        
+                suggestions.append("ادامه مطلب")
+
+        # Ensure minimum 2 suggestions only if we have at least 1
+        if len(suggestions) == 1:
+            output_lower = output.lower()
+            # Add one more contextual suggestion
+            if "آیه" not in output_lower and ("سفیر" in output_lower or "کنش" in output_lower):
+                # No need to force-add suggestions, let it be just 1 if that's what makes sense
+                pass
+
         # Limit to 4 suggestions
         suggestions = suggestions[:4]
-        
+
+        # Skip if we have no meaningful suggestions
+        if len(suggestions) == 0:
+            return output
+
         # Convert any AI-perspective suggestions to user perspective
         converted_suggestions = []
         for suggestion in suggestions:
             converted = self._convert_to_user_perspective(suggestion)
             converted_suggestions.append(converted)
-        
+
         # Format suggestions section
         suggestions_text = "\n\nپیشنهادهای بعدی:\n"
         for i, suggestion in enumerate(converted_suggestions, 1):
             suggestions_text += f"{i}) {suggestion}\n"
-        
+
         return output + suggestions_text
     
     def _convert_to_user_perspective(self, suggestion: str) -> str:
