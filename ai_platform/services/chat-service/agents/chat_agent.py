@@ -22,6 +22,8 @@ class ChatDependencies:
     pending_updates: Dict[str, Any]  # Will be populated by tools
     agent_config: FullAgentConfig  # Full agent configuration
     tool_results: Dict[str, Any] = field(default_factory=dict)  # Results from tool calls
+    history: List[Dict[str, Any]] = field(default_factory=list)  # Conversation history
+    shared_context: Dict[str, Any] = field(default_factory=dict)  # Shared context for routing
 
 
 class ChatAgent(BaseAgent):
@@ -267,14 +269,18 @@ Returns:
                     result = await tool_ref.run(
                         agent_key=agent_key,
                         user_message=user_message,
-                        session_id=session_id or ctx.deps.session_id
+                        session_id=session_id or ctx.deps.session_id,
+                        history=ctx.deps.history,
+                        shared_context=ctx.deps.shared_context
                     )
                 else:
                     # Fallback to execute if available
                     result = await tool_ref.execute(
                         agent_key=agent_key,
                         user_message=user_message,
-                        session_id=session_id or ctx.deps.session_id
+                        session_id=session_id or ctx.deps.session_id,
+                        history=ctx.deps.history,
+                        shared_context=ctx.deps.shared_context
                     )
                 ctx.deps.tool_results[tool_ref.name] = result
                 return result
@@ -684,6 +690,8 @@ Returns:
             user_info=shared_context or {},
             pending_updates=pending_updates,
             agent_config=self.agent_config,
+            history=history or [],
+            shared_context=shared_context or {},
         )
 
         # Build user message with context prepended for better recall
