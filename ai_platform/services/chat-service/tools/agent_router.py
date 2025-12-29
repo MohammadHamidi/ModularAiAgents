@@ -22,6 +22,7 @@ class AgentRouterTool(Tool):
         """
         self.agents_registry = agents_registry
         self.context_manager = context_manager
+        self.last_response = None  # Store the last specialist agent response for history access
         
         # Initialize Tool base class
         super().__init__(
@@ -96,7 +97,10 @@ class AgentRouterTool(Tool):
             shared_context: Shared context to pass to specialist agent
 
         Returns:
-            Specialist agent's response
+            Specialist agent's response (text output)
+            
+        Note: The full AgentResponse with updated history is stored in 
+        self.last_response for access by the caller.
         """
         try:
             # Remove [REQUESTED_AGENT: ...] prefix if present (orchestrator adds this)
@@ -131,7 +135,10 @@ class AgentRouterTool(Tool):
 
             logger.info(f"Received response from agent '{agent_key}': {len(response.output)} chars")
 
-            # Return the specialist's response
+            # Store the full response for access to updated history
+            self.last_response = response
+
+            # Return the specialist's response (text output)
             return response.output
 
         except Exception as e:

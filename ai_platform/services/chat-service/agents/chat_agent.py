@@ -1,4 +1,5 @@
 import datetime
+import logging
 import re
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
@@ -12,6 +13,8 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
 from agents.litellm_compat import create_litellm_compatible_client
 from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -273,6 +276,15 @@ Returns:
                         history=ctx.deps.history,
                         shared_context=ctx.deps.shared_context
                     )
+                    # Extract the specialist agent's updated history from the response
+                    # The router tool stores the full response in last_response
+                    if hasattr(tool_ref, 'last_response') and tool_ref.last_response:
+                        specialist_response = tool_ref.last_response
+                        # Store the specialist's updated history for use in process() method
+                        if specialist_response.metadata and "history" in specialist_response.metadata:
+                            ctx.deps.tool_results["routed_agent_history"] = specialist_response.metadata["history"]
+                            ctx.deps.tool_results["routed_agent_key"] = agent_key
+                            logger.info(f"Stored specialist agent '{agent_key}' updated history ({len(specialist_response.metadata['history'])} messages)")
                 else:
                     # Fallback to execute if available
                     result = await tool_ref.execute(
@@ -734,19 +746,29 @@ Returns:
             request.message
         )
 
-        # Append latest turn to history
-        updated_history: List[Dict[str, Any]] = history.copy() if history else []
-        now_iso = datetime.datetime.utcnow().isoformat()
-        updated_history.append({
-            "role": "user",
-            "content": request.message,
-            "timestamp": now_iso,
-        })
-        updated_history.append({
-            "role": "assistant",
-            "content": assistant_output,
-            "timestamp": now_iso,
-        })
+        # Check if routing to a specialist agent occurred
+        # If so, use the specialist's updated history instead of creating new one
+        if "routed_agent_history" in deps.tool_results:
+            # Specialist agent was called and has already updated the history
+            # Use the specialist's updated history directly
+            updated_history = deps.tool_results["routed_agent_history"]
+            routed_agent_key = deps.tool_results.get("routed_agent_key", "unknown")
+            logger.info(f"Using specialist agent '{routed_agent_key}' updated history ({len(updated_history)} messages)")
+        else:
+            # No routing occurred, orchestrator is responding directly
+            # Append latest turn to history
+            updated_history: List[Dict[str, Any]] = history.copy() if history else []
+            now_iso = datetime.datetime.utcnow().isoformat()
+            updated_history.append({
+                "role": "user",
+                "content": request.message,
+                "timestamp": now_iso,
+            })
+            updated_history.append({
+                "role": "assistant",
+                "content": assistant_output,
+                "timestamp": now_iso,
+            })
 
         # Merge context updates from tools with existing context
         context_updates_combined: Dict[str, Any] = {}
