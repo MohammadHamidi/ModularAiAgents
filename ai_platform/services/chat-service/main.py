@@ -250,12 +250,11 @@ async def startup():
     
     # Define which tools each persona can use
     persona_tool_assignments = {
-        "default": ["knowledge_base_query", "calculator", "get_weather"],
-        "tutor": ["knowledge_base_query", "calculator", "get_learning_resource"],
-        "professional": ["knowledge_base_query", "web_search", "get_company_info", "calculator"],
-        "minimal": [],  # Privacy-focused, no external tools
-        "konesh_expert": ["query_konesh", "knowledge_base_query"],  # کنش expert tools
         "orchestrator": ["route_to_agent"],  # Orchestrator routing tool
+        "guest_faq": ["knowledge_base_query"],  # FAQ agent - minimal tools
+        "action_expert": ["query_konesh", "knowledge_base_query"],  # Action expert tools
+        "journey_register": ["query_konesh"],  # Journey agent - basic tools for verification
+        "rewards_invite": ["knowledge_base_query"],  # Rewards agent - basic tools
     }
     
     # ==========================================================================
@@ -265,13 +264,13 @@ async def startup():
     available_configs = loader.list_available_configs()
     
     # Define persona mappings (key -> config file)
+    # سفیران آیه‌ها specialized agents
     persona_configs = {
-        "default": "agent_config.yaml",
-        "tutor": "personalities/friendly_tutor.yaml",
-        "professional": "personalities/professional_assistant.yaml",
-        "minimal": "personalities/minimal_assistant.yaml",
-        "konesh_expert": "personalities/konesh_expert.yaml",
-        "orchestrator": "personalities/orchestrator.yaml",
+        "orchestrator": "personalities/orchestrator.yaml",  # Context Router
+        "guest_faq": "personalities/guest_faq.yaml",  # Guest/FAQ Agent
+        "action_expert": "personalities/action_expert.yaml",  # Action Expert (replaces konesh_expert)
+        "journey_register": "personalities/journey_register.yaml",  # Journey & Registration Agent
+        "rewards_invite": "personalities/rewards_invite.yaml",  # Rewards & Invitation Agent
     }
     
     # Register each persona as a separate agent with their tools
