@@ -1,0 +1,941 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+      "title": "AI Platform Chat Service API",
+      "description": "\n    Chat service for the AI Platform that handles AI agent interactions.\n    \n    ## Features\n    - Multiple AI agents with different personas (default, tutor, professional, minimal, translator)\n    - Session management with conversation history\n    - Shared context across agents\n    - User data persistence\n    - Knowledge base integration (LightRAG)\n    - Tool support (calculator, weather, web search, etc.)\n    \n    ## API Endpoints\n    - `/chat/{agent_key}` - Send messages to AI agents\n    - `/agents` - List available AI agents\n    - `/session/{session_id}/context` - Get session context\n    - `/session/{session_id}/user-data` - Get user data for a session\n    - `/fields` - Manage user data fields dynamically\n    - `/health` - Service health check\n    ",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/health": {
+        "get": {
+          "tags": [
+            "Health"
+          ],
+          "summary": "Health",
+          "description": "Chat service health check.\n\nReturns the health status of the chat service and list of available agents.\nService is considered healthy if it's running and can accept requests,\nregardless of agent loading status.",
+          "operationId": "health_health_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/health/stream": {
+        "get": {
+          "tags": [
+            "Health"
+          ],
+          "summary": "Health Stream",
+          "description": "Streaming endpoint health check.\n\nTests if the streaming infrastructure is working correctly.\nReturns a simple SSE stream to verify connectivity.",
+          "operationId": "health_stream_health_stream_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/agents": {
+        "get": {
+          "tags": [
+            "Agents"
+          ],
+          "summary": "List Agents",
+          "description": "List all available AI agents with their details.\n\nReturns information about each agent including name, model, capabilities, and max turns.",
+          "operationId": "list_agents_agents_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/personas": {
+        "get": {
+          "tags": [
+            "Agents"
+          ],
+          "summary": "List Personas",
+          "description": "List all available chat personas.",
+          "operationId": "list_personas_personas_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/tools": {
+        "get": {
+          "tags": [
+            "Tools"
+          ],
+          "summary": "List Tools",
+          "description": "List all available tools in the system.",
+          "operationId": "list_tools_tools_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/tools/{tool_name}": {
+        "get": {
+          "tags": [
+            "Tools"
+          ],
+          "summary": "Get Tool Info",
+          "description": "Get detailed information about a specific tool.",
+          "operationId": "get_tool_info_tools__tool_name__get",
+          "parameters": [
+            {
+              "name": "tool_name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Tool Name"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/chat/{agent_key}": {
+        "post": {
+          "tags": [
+            "Chat"
+          ],
+          "summary": "Chat",
+          "description": "Send a message to an AI agent.\n\nProcesses the user's message through the specified AI agent and returns a response.\nSupports session management, user data persistence, and shared context across agents.\n\n- **agent_key**: The identifier of the agent (e.g., 'default', 'tutor', 'professional', 'orchestrator')\n- **request**: Contains message, optional session_id, user_data, and use_shared_context flag\n\nRouting Logic:\n- If agent_key is 'orchestrator', request goes directly to orchestrator\n- If agent_key is any other agent, request first goes to orchestrator for intelligent routing\n- Orchestrator will route to the requested agent or choose a better one based on the message content",
+          "operationId": "chat_chat__agent_key__post",
+          "parameters": [
+            {
+              "name": "agent_key",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Agent Key"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/session/{session_id}": {
+        "delete": {
+          "tags": [
+            "Sessions"
+          ],
+          "summary": "Delete Session",
+          "description": "Delete session and its context",
+          "operationId": "delete_session_session__session_id__delete",
+          "parameters": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Session Id"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/session/{session_id}/context": {
+        "get": {
+          "tags": [
+            "Sessions"
+          ],
+          "summary": "Get Session Context",
+          "description": "Get all shared context for session",
+          "operationId": "get_session_context_session__session_id__context_get",
+          "parameters": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Session Id"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/session/{session_id}/user-data": {
+        "get": {
+          "tags": [
+            "Sessions"
+          ],
+          "summary": "Get Session User Data",
+          "description": "Get user data for a session in app format.\nReturns user data normalized back to app field names.",
+          "operationId": "get_session_user_data_session__session_id__user_data_get",
+          "parameters": [
+            {
+              "name": "session_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Session Id"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/fields": {
+        "get": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "List Fields",
+          "description": "List all configured user data fields.",
+          "operationId": "list_fields_config_fields_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        },
+        "post": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Add Field",
+          "description": "Add a new user data field at runtime.",
+          "operationId": "add_field_config_fields_post",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldCreateRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/fields/{field_name}": {
+        "get": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Get Field",
+          "description": "Get a specific field by name.",
+          "operationId": "get_field_config_fields__field_name__get",
+          "parameters": [
+            {
+              "name": "field_name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Field Name"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "put": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Update Field",
+          "description": "Update an existing user data field.",
+          "operationId": "update_field_config_fields__field_name__put",
+          "parameters": [
+            {
+              "name": "field_name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Field Name"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldUpdateRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "delete": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Delete Field",
+          "description": "Delete or disable a user data field.\n\n- permanent=false (default): Only disables the field\n- permanent=true: Permanently removes the field",
+          "operationId": "delete_field_config_fields__field_name__delete",
+          "parameters": [
+            {
+              "name": "field_name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Field Name"
+              }
+            },
+            {
+              "name": "permanent",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "boolean",
+                "default": false,
+                "title": "Permanent"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/fields/{field_name}/enable": {
+        "post": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Enable Field",
+          "description": "Re-enable a disabled field.",
+          "operationId": "enable_field_config_fields__field_name__enable_post",
+          "parameters": [
+            {
+              "name": "field_name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Field Name"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/reload": {
+        "post": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Reload Config",
+          "description": "Reload configuration from YAML file.\nThis will reset all runtime changes and reload from disk.",
+          "operationId": "reload_config_config_reload_post",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/config/export": {
+        "get": {
+          "tags": [
+            "Config"
+          ],
+          "summary": "Export Config",
+          "description": "Export current configuration as JSON (for backup or transfer).",
+          "operationId": "export_config_config_export_get",
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/chat/{agent_key}/stream": {
+        "post": {
+          "tags": [
+            "Chat"
+          ],
+          "summary": "Chat Stream",
+          "description": "Stream a message to an AI agent (Server-Sent Events).\n\nAll requests are routed through orchestrator for intelligent routing.\nReturns streaming response as Server-Sent Events (SSE).",
+          "operationId": "chat_stream_chat__agent_key__stream_post",
+          "parameters": [
+            {
+              "name": "agent_key",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "title": "Agent Key"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Successful Response",
+              "content": {
+                "application/json": {
+                  "schema": {
+  
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation Error",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "AgentRequest": {
+          "properties": {
+            "message": {
+              "type": "string",
+              "title": "Message"
+            },
+            "session_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            },
+            "context": {
+              "additionalProperties": true,
+              "type": "object",
+              "title": "Context",
+              "default": {
+  
+              }
+            },
+            "use_shared_context": {
+              "type": "boolean",
+              "title": "Use Shared Context",
+              "default": true
+            },
+            "user_data": {
+              "additionalProperties": true,
+              "type": "object",
+              "title": "User Data",
+              "default": {
+  
+              }
+            }
+          },
+          "type": "object",
+          "required": [
+            "message"
+          ],
+          "title": "AgentRequest"
+        },
+        "FieldCreateRequest": {
+          "properties": {
+            "field_name": {
+              "type": "string",
+              "title": "Field Name"
+            },
+            "normalized_name": {
+              "type": "string",
+              "title": "Normalized Name"
+            },
+            "description": {
+              "type": "string",
+              "title": "Description"
+            },
+            "data_type": {
+              "type": "string",
+              "title": "Data Type",
+              "default": "string"
+            },
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true
+            },
+            "aliases": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Aliases",
+              "default": []
+            },
+            "examples": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Examples",
+              "default": []
+            },
+            "accumulate": {
+              "type": "boolean",
+              "title": "Accumulate",
+              "default": false
+            },
+            "validation": {
+              "additionalProperties": true,
+              "type": "object",
+              "title": "Validation",
+              "default": {
+  
+              }
+            }
+          },
+          "type": "object",
+          "required": [
+            "field_name",
+            "normalized_name",
+            "description"
+          ],
+          "title": "FieldCreateRequest",
+          "description": "Request model for creating a new user data field."
+        },
+        "FieldUpdateRequest": {
+          "properties": {
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "data_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Data Type"
+            },
+            "enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Enabled"
+            },
+            "aliases": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Aliases"
+            },
+            "examples": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Examples"
+            },
+            "accumulate": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accumulate"
+            },
+            "validation": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Validation"
+            }
+          },
+          "type": "object",
+          "title": "FieldUpdateRequest",
+          "description": "Request model for updating a user data field."
+        },
+        "HTTPValidationError": {
+          "properties": {
+            "detail": {
+              "items": {
+                "$ref": "#/components/schemas/ValidationError"
+              },
+              "type": "array",
+              "title": "Detail"
+            }
+          },
+          "type": "object",
+          "title": "HTTPValidationError"
+        },
+        "ValidationError": {
+          "properties": {
+            "loc": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "type": "array",
+              "title": "Location"
+            },
+            "msg": {
+              "type": "string",
+              "title": "Message"
+            },
+            "type": {
+              "type": "string",
+              "title": "Error Type"
+            }
+          },
+          "type": "object",
+          "required": [
+            "loc",
+            "msg",
+            "type"
+          ],
+          "title": "ValidationError"
+        }
+      }
+    }
+  }
