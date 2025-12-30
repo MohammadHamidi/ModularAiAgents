@@ -704,14 +704,19 @@ Returns:
             last_user_messages
         )
 
-        # System prompt will be passed to the run() method, not set as an attribute
-        # Log system prompt for debugging
-        prompt_length = len(dynamic_system_prompt) if dynamic_system_prompt else 0
-        has_tone_instructions = any(keyword in dynamic_system_prompt.lower()
-                                  for keyword in ['لحن', 'tone', 'رفیق', 'warm', 'casual', 'friendly']) if dynamic_system_prompt else False
-        logger.info(f"System prompt prepared: {prompt_length} chars, tone indicators: {has_tone_instructions}")
-        if dynamic_system_prompt and not has_tone_instructions:
-            logger.warning("System prompt may be missing tone instructions!")
+        # Set system prompt on the agent before calling run()
+        # This is the correct way to dynamically change system prompts in pydantic-ai
+        if dynamic_system_prompt:
+            self.agent.system_prompt = dynamic_system_prompt
+            # Log system prompt for debugging
+            prompt_length = len(dynamic_system_prompt)
+            has_tone_instructions = any(keyword in dynamic_system_prompt.lower()
+                                      for keyword in ['لحن', 'tone', 'رفیق', 'warm', 'casual', 'friendly'])
+            logger.info(f"System prompt set on agent: {prompt_length} chars, tone indicators: {has_tone_instructions}")
+            if not has_tone_instructions:
+                logger.warning("System prompt may be missing tone instructions!")
+        else:
+            logger.warning("No dynamic system prompt generated!")
 
         # Prepare dependencies for tools
         pending_updates: Dict[str, Any] = {}
@@ -747,13 +752,12 @@ Returns:
                 user_message = f"<internal_context>{context_summary}</internal_context>\n{user_message}"
 
         # Run the agent with tool support
+        # The system prompt has already been set on self.agent.system_prompt above
         logger.info(f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history")
-        # Pass system_prompt to run() method to ensure it's used by the model
         result = await self.agent.run(
             user_message,
             message_history=message_history,
             deps=deps,
-            system_prompt=dynamic_system_prompt,  # Critical: Pass system prompt here
         )
         assistant_output = result.output
         
