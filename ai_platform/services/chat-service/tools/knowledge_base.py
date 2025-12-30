@@ -29,7 +29,7 @@ class KnowledgeBaseTool(Tool):
                 "type": "string",
                 "description": "Retrieval mode",
                 "enum": ["mix", "hybrid", "local", "global", "naive", "bypass"],
-                "default": "mix"
+                "default": "hybrid"
             },
             "include_references": {
                 "type": "boolean",
@@ -39,7 +39,7 @@ class KnowledgeBaseTool(Tool):
             "include_chunk_content": {
                 "type": "boolean",
                 "description": "Include raw chunk content (for evaluation/debug only)",
-                "default": False
+                "default": True
             },
             "response_type": {
                 "type": "string",
@@ -60,7 +60,7 @@ class KnowledgeBaseTool(Tool):
             "max_total_tokens": {
                 "type": "integer",
                 "description": "Maximum total tokens in response",
-                "default": 6000
+                "default": 7000
             },
             "conversation_history": {
                 "type": "array",
