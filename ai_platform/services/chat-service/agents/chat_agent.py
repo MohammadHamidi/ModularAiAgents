@@ -704,18 +704,14 @@ Returns:
             last_user_messages
         )
 
-        # System prompt is set in the Agent at initialization, not in message_history
-        # message_history should only contain user and assistant messages (ModelRequest/ModelResponse objects)
-        # Update the agent's system prompt dynamically
-        if dynamic_system_prompt:
-            self.agent._system_prompt = dynamic_system_prompt
-            # Log system prompt length and key tone indicators for debugging
-            prompt_length = len(dynamic_system_prompt)
-            has_tone_instructions = any(keyword in dynamic_system_prompt.lower() 
-                                      for keyword in ['لحن', 'tone', 'رفیق', 'warm', 'casual', 'friendly'])
-            logger.info(f"System prompt set: {prompt_length} chars, tone indicators: {has_tone_instructions}")
-            if not has_tone_instructions:
-                logger.warning("System prompt may be missing tone instructions!")
+        # System prompt will be passed to the run() method, not set as an attribute
+        # Log system prompt for debugging
+        prompt_length = len(dynamic_system_prompt) if dynamic_system_prompt else 0
+        has_tone_instructions = any(keyword in dynamic_system_prompt.lower()
+                                  for keyword in ['لحن', 'tone', 'رفیق', 'warm', 'casual', 'friendly']) if dynamic_system_prompt else False
+        logger.info(f"System prompt prepared: {prompt_length} chars, tone indicators: {has_tone_instructions}")
+        if dynamic_system_prompt and not has_tone_instructions:
+            logger.warning("System prompt may be missing tone instructions!")
 
         # Prepare dependencies for tools
         pending_updates: Dict[str, Any] = {}
@@ -752,10 +748,12 @@ Returns:
 
         # Run the agent with tool support
         logger.info(f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history")
+        # Pass system_prompt to run() method to ensure it's used by the model
         result = await self.agent.run(
             user_message,
             message_history=message_history,
             deps=deps,
+            system_prompt=dynamic_system_prompt,  # Critical: Pass system prompt here
         )
         assistant_output = result.output
         
