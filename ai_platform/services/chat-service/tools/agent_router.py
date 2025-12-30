@@ -23,10 +23,11 @@ class AgentRouterTool(Tool):
         self.agents_registry = agents_registry
         self.context_manager = context_manager
         self.last_response = None  # Store the last specialist agent response for history access
-        
-        # Initialize Tool base class
+
+        # Initialize Tool base class with enabled=True explicitly
         super().__init__(
             name="route_to_agent",
+            enabled=True,  # Explicitly set to ensure it's enabled
             description="""
         Route a user request to a specialist agent and get their response.
 

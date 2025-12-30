@@ -143,12 +143,18 @@ Returns:
     
     async def _register_custom_tools(self):
         """Register custom tools for this persona."""
+        agent_name = getattr(self.agent_config, 'agent_name', 'unknown')
+        logger.info(f"_register_custom_tools for {agent_name}: {len(self.custom_tools)} tools to register")
+
         for tool in self.custom_tools:
+            logger.info(f"  Registering tool: {tool.name}, enabled={tool.enabled}")
             if not tool.enabled:
+                logger.warning(f"  Skipping disabled tool: {tool.name}")
                 continue
-            
+
             # Register each tool with explicit parameter handling
             self._register_tool_explicit(tool)
+            logger.info(f"  Successfully registered tool: {tool.name}")
     
     def _register_tool_explicit(self, tool):
         """Register a tool with explicit parameter definitions."""
@@ -264,6 +270,7 @@ Returns:
             
         elif tool.name == "route_to_agent":
             # AgentRouterTool uses run() method, not execute()
+            logger.info(f"Registering route_to_agent tool with pydantic-ai agent")
             async def route_tool(
                 ctx: RunContext[ChatDependencies],
                 agent_key: str,
@@ -303,6 +310,7 @@ Returns:
                 return result
             route_tool.__doc__ = full_doc
             self.agent.tool(route_tool)
+            logger.info(f"Successfully registered route_to_agent with pydantic-ai agent")
             
         else:
             # Generic fallback - single string query parameter
