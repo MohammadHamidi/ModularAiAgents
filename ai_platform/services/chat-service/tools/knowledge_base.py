@@ -133,6 +133,8 @@ class KnowledgeBaseTool(Tool):
         retry_delays = [1.0, 2.0, 4.0]  # Exponential backoff: 1s, 2s, 4s
         
         for attempt in range(max_retries):
+            if attempt > 0:
+                logging.info(f"LightRAG retry attempt {attempt + 1}/{max_retries} for endpoint {endpoint}")
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     headers = {}
@@ -246,6 +248,9 @@ class KnowledgeBaseTool(Tool):
         
         if conversation_history:
             payload["conversation_history"] = conversation_history
+        
+        # Log the key parameters being used
+        logging.info(f"LightRAG query: mode={mode}, only_need_context={only_need_context}, only_need_prompt={only_need_prompt}, query_length={len(query.strip())}")
         
         result = await self._make_request("/query", payload)
         

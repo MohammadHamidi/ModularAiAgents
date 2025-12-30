@@ -732,9 +732,15 @@ Returns:
         # Use a format that's clearly internal and won't be repeated by the model
         user_message = request.message
         
-        # Add KB instruction for ALL questions (except greetings)
+        # Special handling for orchestrator: Force routing instruction
+        agent_name = getattr(self.agent_config, 'agent_name', '')
+        if "هماهنگ‌کننده" in agent_name or "Router" in agent_name or "orchestrator" in agent_name.lower():
+            routing_instruction = "\n<system_note>⚠️⚠️⚠️ CRITICAL: تو فقط Router هستی. برای این پیام کاربر، حتماً باید از route_to_agent استفاده کنی. هرگز پاسخ مستقیم نده. همیشه route_to_agent را فراخوانی کن.</system_note>"
+            user_message = user_message + routing_instruction
+        
+        # Add KB instruction for ALL questions (except greetings) - but not for orchestrator
         # KB-first approach: Always query KB first for every question
-        if not self._is_greeting(user_message):
+        elif not self._is_greeting(user_message):
             kb_instruction = "\n<system_note>این سوال کاربر است. حتماً ابتدا از knowledge_base_query استفاده کن و سپس بر اساس نتایج KB پاسخ بده. اگر KB نتیجه نداد، آنگاه پاسخ عمومی بده.</system_note>"
             user_message = user_message + kb_instruction
         
@@ -778,7 +784,19 @@ Returns:
             routed_agent_key = deps.tool_results.get("routed_agent_key", "unknown")
             logger.info(f"Using specialist agent '{routed_agent_key}' updated history ({len(updated_history)} messages)")
         else:
-            # No routing occurred, orchestrator is responding directly
+            # Check if this is the orchestrator and it didn't route (this should not happen)
+            agent_name = getattr(self.agent_config, 'agent_name', '')
+            is_orchestrator = ("هماهنگ‌کننده" in agent_name or "Router" in agent_name or "orchestrator" in agent_name.lower())
+            
+            if is_orchestrator:
+                # Orchestrator should always route - this is an error condition
+                logger.error(f"⚠️⚠️⚠️ ORCHESTRATOR ERROR: Orchestrator responded directly without routing! "
+                           f"Agent name: {agent_name}, Output length: {len(assistant_output)}, "
+                           f"Tool results: {list(deps.tool_results.keys())}")
+                logger.error(f"Orchestrator output: {assistant_output[:200]}...")
+                # Log warning but continue - the response will be returned but it's incorrect behavior
+            
+            # No routing occurred, append to history
             # Append latest turn to history
             updated_history: List[Dict[str, Any]] = history.copy() if history else []
             now_iso = datetime.datetime.utcnow().isoformat()
