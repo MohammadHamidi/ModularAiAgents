@@ -4,6 +4,7 @@ Knowledge Base Tool - Query LightRAG Server for information.
 import os
 import logging
 import httpx
+import asyncio
 from tools.registry import Tool
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
@@ -29,7 +30,7 @@ class KnowledgeBaseTool(Tool):
                 "type": "string",
                 "description": "Retrieval mode",
                 "enum": ["mix", "hybrid", "local", "global", "naive", "bypass"],
-                "default": "mix"
+                "default": "hybrid"
             },
             "include_references": {
                 "type": "boolean",
@@ -72,6 +73,16 @@ class KnowledgeBaseTool(Tool):
                         "content": {"type": "string"}
                     }
                 }
+            },
+            "only_need_context": {
+                "type": "boolean",
+                "description": "Only return context without LLM-generated response",
+                "default": False
+            },
+            "only_need_prompt": {
+                "type": "boolean",
+                "description": "Only return prompt without executing query",
+                "default": False
             }
         },
         "required": ["query"]
@@ -113,73 +124,108 @@ class KnowledgeBaseTool(Tool):
         
         return None
     
-    async def _make_request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Make authenticated request to LightRAG API."""
+    async def _make_request(self, endpoint: str, payload: Dict[str, Any], max_retries: int = 3) -> Dict[str, Any]:
+        """Make authenticated request to LightRAG API with retry mechanism."""
         if not self.base_url:
             return {"error": "LIGHTRAG_BASE_URL not configured"}
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            headers = {}
-            params = {}
-            
-            # Try bearer token first
-            token = await self._get_auth_token(client)
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            
-            # Try API key as query param
-            if self.api_key and not token:
-                params["api_key_header_value"] = self.api_key
-            
-            # If no auth method, try /auth-status for guest token
-            if not token and not self.api_key:
-                try:
-                    auth_status = await client.get(f"{self.base_url}/auth-status", timeout=5.0)
-                    if auth_status.status_code == 200:
-                        guest_token = auth_status.json().get("guest_token")
-                        if guest_token:
-                            headers["Authorization"] = f"Bearer {guest_token}"
-                except Exception:
-                    pass
-            
+        # Retry configuration
+        retry_delays = [1.0, 2.0, 4.0]  # Exponential backoff: 1s, 2s, 4s
+        
+        for attempt in range(max_retries):
             try:
-                response = await client.post(
-                    f"{self.base_url}{endpoint}",
-                    json=payload,
-                    headers=headers,
-                    params=params if params else None,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                result = response.json()
-                
-                # Log if response is empty or malformed
-                if not result.get("response"):
-                    logging.warning(f"LightRAG query returned empty response for query: {payload.get('query', '')[:50]}")
-                    logging.debug(f"LightRAG response: {result}")
-                
-                return result
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    headers = {}
+                    params = {}
+                    
+                    # Try bearer token first
+                    token = await self._get_auth_token(client)
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+                    
+                    # Try API key as query param
+                    if self.api_key and not token:
+                        params["api_key_header_value"] = self.api_key
+                    
+                    # If no auth method, try /auth-status for guest token
+                    if not token and not self.api_key:
+                        try:
+                            auth_status = await client.get(f"{self.base_url}/auth-status", timeout=5.0)
+                            if auth_status.status_code == 200:
+                                guest_token = auth_status.json().get("guest_token")
+                                if guest_token:
+                                    headers["Authorization"] = f"Bearer {guest_token}"
+                        except Exception:
+                            pass
+                    
+                    response = await client.post(
+                        f"{self.base_url}{endpoint}",
+                        json=payload,
+                        headers=headers,
+                        params=params if params else None,
+                        timeout=30.0
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    
+                    # Log if response is empty or malformed
+                    if not result.get("response") and not payload.get("only_need_context") and not payload.get("only_need_prompt"):
+                        logging.warning(f"LightRAG query returned empty response for query: {payload.get('query', '')[:50]}")
+                        logging.debug(f"LightRAG response: {result}")
+                    
+                    return result
             except httpx.HTTPStatusError as e:
-                logging.error(f"LightRAG HTTP error {e.response.status_code}: {e.response.text}")
-                return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
+                # Don't retry on client errors (4xx), only on server errors (5xx)
+                if e.response.status_code < 500:
+                    logging.error(f"LightRAG HTTP error {e.response.status_code}: {e.response.text}")
+                    return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
+                
+                # Server error - retry
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
+                    logging.warning(f"LightRAG HTTP error {e.response.status_code}, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logging.error(f"LightRAG HTTP error {e.response.status_code} after {max_retries} attempts: {e.response.text}")
+                    return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
             except httpx.RequestError as e:
-                logging.error(f"LightRAG request error: {str(e)}")
-                return {"error": f"Request failed: {str(e)}"}
+                # Network/connection errors - retry
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
+                    logging.warning(f"LightRAG request error, retrying in {delay}s (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logging.error(f"LightRAG request error after {max_retries} attempts: {str(e)}")
+                    return {"error": f"Request failed: {str(e)}"}
             except Exception as e:
-                logging.error(f"LightRAG unexpected error: {str(e)}")
-                return {"error": f"Unexpected error: {str(e)}"}
+                # Unexpected errors - retry
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt] if attempt < len(retry_delays) else retry_delays[-1]
+                    logging.warning(f"LightRAG unexpected error, retrying in {delay}s (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logging.error(f"LightRAG unexpected error after {max_retries} attempts: {str(e)}")
+                    return {"error": f"Unexpected error: {str(e)}"}
+        
+        # Should not reach here, but just in case
+        return {"error": "Request failed after all retries"}
     
     async def execute(
         self,
         query: str,
-        mode: str = "mix",
+        mode: str = "hybrid",
         include_references: bool = True,
         include_chunk_content: bool = False,
         response_type: str = "Multiple Paragraphs",
         top_k: int = 10,
         chunk_top_k: int = 8,
         max_total_tokens: int = 6000,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        only_need_context: bool = True,
+        only_need_prompt: bool = False
     ) -> str:
         """Execute LightRAG query."""
         if len(query.strip()) < 3:
@@ -193,7 +239,9 @@ class KnowledgeBaseTool(Tool):
             "response_type": response_type,
             "top_k": top_k,
             "chunk_top_k": chunk_top_k,
-            "max_total_tokens": max_total_tokens
+            "max_total_tokens": max_total_tokens,
+            "only_need_context": only_need_context,
+            "only_need_prompt": only_need_prompt
         }
         
         if conversation_history:
@@ -210,7 +258,35 @@ class KnowledgeBaseTool(Tool):
             else:
                 return f"[Knowledge Base] UNAVAILABLE: {error_msg}. I cannot access the Knowledge Base to answer this question."
         
-        # Format response
+        # Handle different response types based on parameters
+        if only_need_prompt:
+            # Return only the prompt if requested
+            prompt = result.get("prompt", "")
+            if prompt:
+                return f"[Knowledge Base Prompt]\n{prompt}"
+            else:
+                return "[Knowledge Base] No prompt returned from knowledge base."
+        
+        if only_need_context:
+            # Return only context without LLM-generated response
+            context = result.get("context", "")
+            references = result.get("references", [])
+            
+            if context:
+                formatted = f"[Knowledge Base Context]\n{context}"
+                # Add citations if references exist
+                if references and include_references:
+                    formatted += "\n\nSources: "
+                    citation_parts = []
+                    for i, ref in enumerate(references, 1):
+                        file_path = ref.get("file_path", ref.get("path", "unknown"))
+                        citation_parts.append(f"[{i}] {file_path}")
+                    formatted += ", ".join(citation_parts)
+                return formatted
+            else:
+                return "[Knowledge Base] No context returned from knowledge base."
+        
+        # Format normal response
         response_text = result.get("response", "")
         references = result.get("references", [])
         

@@ -176,14 +176,16 @@ Returns:
             async def kb_tool(
             ctx: RunContext[ChatDependencies],
                 query: str,
-                mode: str = "mix",
+                mode: str = "hybrid",
                 include_references: bool = True,
                 include_chunk_content: bool = False,
                 response_type: str = "Multiple Paragraphs",
                 top_k: int = 10,
                 chunk_top_k: int = 8,
                 max_total_tokens: int = 6000,
-                conversation_history: list = None
+                conversation_history: list = None,
+                only_need_context: bool = True,
+                only_need_prompt: bool = False
         ) -> str:
                 """Query the LightRAG knowledge base."""
                 result = await tool_ref.execute(
@@ -195,7 +197,9 @@ Returns:
                     top_k=top_k,
                     chunk_top_k=chunk_top_k,
                     max_total_tokens=max_total_tokens,
-                    conversation_history=conversation_history
+                    conversation_history=conversation_history,
+                    only_need_context=only_need_context,
+                    only_need_prompt=only_need_prompt
                 )
                 ctx.deps.tool_results[tool_ref.name] = result
                 return result
@@ -705,6 +709,13 @@ Returns:
         # Update the agent's system prompt dynamically
         if dynamic_system_prompt:
             self.agent._system_prompt = dynamic_system_prompt
+            # Log system prompt length and key tone indicators for debugging
+            prompt_length = len(dynamic_system_prompt)
+            has_tone_instructions = any(keyword in dynamic_system_prompt.lower() 
+                                      for keyword in ['لحن', 'tone', 'رفیق', 'warm', 'casual', 'friendly'])
+            logger.info(f"System prompt set: {prompt_length} chars, tone indicators: {has_tone_instructions}")
+            if not has_tone_instructions:
+                logger.warning("System prompt may be missing tone instructions!")
 
         # Prepare dependencies for tools
         pending_updates: Dict[str, Any] = {}
