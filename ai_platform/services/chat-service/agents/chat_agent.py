@@ -759,6 +759,15 @@ Returns:
                 # Format: Hidden context that model should use but NEVER repeat
                 user_message = f"<internal_context>{context_summary}</internal_context>\n{user_message}"
 
+        # Log complete LLM input for debugging
+        self._log_llm_input(
+            agent_name=agent_name,
+            system_prompt=dynamic_system_prompt,
+            user_message=user_message,
+            message_history=message_history,
+            shared_context=shared_context
+        )
+        
         # Run the agent with tool support
         # The system prompt has already been set on self.agent.system_prompt above
         logger.info(f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history")
@@ -793,6 +802,9 @@ Returns:
             updated_history = deps.tool_results["routed_agent_history"]
             routed_agent_key = deps.tool_results.get("routed_agent_key", "unknown")
             logger.info(f"Using specialist agent '{routed_agent_key}' updated history ({len(updated_history)} messages)")
+            
+            # Extract pure specialist response (remove orchestrator's explanatory text)
+            assistant_output = self._extract_routed_response(assistant_output, deps.tool_results)
         else:
             # Check if this is the orchestrator and it didn't route (this should not happen)
             agent_name = getattr(self.agent_config, 'agent_name', '')
@@ -840,6 +852,110 @@ Returns:
             metadata=metadata,
             context_updates=context_updates_combined,
         )
+
+    def _log_llm_input(
+        self,
+        agent_name: str,
+        system_prompt: str,
+        user_message: str,
+        message_history: List[Any],
+        shared_context: Dict[str, Any]
+    ):
+        """
+        Log the complete input sent to LLM for debugging.
+        
+        Shows:
+        - System prompt
+        - User message (with context and instructions)
+        - Message history summary
+        - Shared context
+        """
+        logger.info("=" * 80)
+        logger.info(f"LLM INPUT FOR AGENT: {agent_name}")
+        logger.info("=" * 80)
+        
+        # System Prompt
+        logger.info("\n[SYSTEM PROMPT]")
+        logger.info("-" * 80)
+        if system_prompt:
+            # Log first 500 chars and last 200 chars if too long
+            if len(system_prompt) > 700:
+                logger.info(f"{system_prompt[:500]}...\n...{system_prompt[-200:]}")
+                logger.info(f"\n(Full length: {len(system_prompt)} chars)")
+            else:
+                logger.info(system_prompt)
+        else:
+            logger.info("(No system prompt)")
+        
+        # Shared Context
+        if shared_context:
+            logger.info("\n[SHARED CONTEXT]")
+            logger.info("-" * 80)
+            context_str = "\n".join([f"  {k}: {v}" for k, v in shared_context.items() if not isinstance(v, dict) or not v.get("value")])
+            if len(context_str) > 500:
+                logger.info(f"{context_str[:500]}...")
+            else:
+                logger.info(context_str if context_str else "(Empty context)")
+        
+        # Message History Summary
+        logger.info(f"\n[MESSAGE HISTORY]")
+        logger.info("-" * 80)
+        logger.info(f"Total messages in history: {len(message_history)}")
+        if message_history:
+            # Show last 2 messages
+            for i, msg in enumerate(message_history[-2:], start=max(1, len(message_history)-1)):
+                role = "user" if hasattr(msg, 'parts') and any(hasattr(p, 'content') for p in msg.parts) else "assistant"
+                content_preview = str(msg)[:100] + "..." if len(str(msg)) > 100 else str(msg)
+                logger.info(f"  Message {i} ({role}): {content_preview}")
+        
+        # User Message (final)
+        logger.info("\n[USER MESSAGE (FINAL)]")
+        logger.info("-" * 80)
+        if len(user_message) > 1000:
+            logger.info(f"{user_message[:500]}...\n...{user_message[-500:]}")
+            logger.info(f"\n(Full length: {len(user_message)} chars)")
+        else:
+            logger.info(user_message)
+        
+        logger.info("=" * 80)
+        logger.info("END LLM INPUT LOG")
+        logger.info("=" * 80)
+
+    def _extract_routed_response(self, assistant_output: str, tool_results: Dict[str, Any]) -> str:
+        """
+        Extract pure specialist response when orchestrator has routed.
+        
+        If the orchestrator added explanatory text around the specialist's response,
+        this method extracts only the specialist's response.
+        
+        Args:
+            assistant_output: The output from the orchestrator
+            tool_results: Tool results dictionary
+            
+        Returns:
+            Pure specialist response or original output if not a routed response
+        """
+        if "routed_agent_history" not in tool_results:
+            return assistant_output  # Not a routed response
+        
+        # Get the specialist's response from tool results
+        routed_response = tool_results.get("route_to_agent")
+        
+        if not routed_response:
+            # Try to find it in tool_results by checking all tool results
+            for key, value in tool_results.items():
+                if key != "routed_agent_history" and key != "routed_agent_key":
+                    if isinstance(value, str) and len(value) > 50:  # Likely the response
+                        routed_response = value
+                        break
+        
+        if routed_response:
+            # Always use the routed response when routing occurred
+            # The orchestrator should never add text, so if routing happened, use the specialist's response
+            logger.info(f"Routing detected, using pure specialist response (length: {len(routed_response)})")
+            return routed_response
+        
+        return assistant_output
 
     def _ensure_suggestions_section(
         self,

@@ -32,3 +32,14 @@ ai_platform/test_db_connection.py
 ai_platform/test_session_memory.py
 ai_platform/.env
 ai_platform/.env
+ai_platform/QA_TEST_INSTRUCTIONS.md
+ai_platform/qa_test_report_20251231_101608.txt
+ai_platform/qa_test_report_20251231_101701.txt
+ai_platform/qa_test_report_20251231_101753.txt
+ai_platform/qa_test_report_20251231_102552.txt
+ai_platform/qa_test_report_20251231_103928.txt
+ai_platform/qa_test_results_20251231_101608.json
+ai_platform/qa_test_results_20251231_101701.json
+ai_platform/qa_test_results_20251231_101753.json
+ai_platform/qa_test_results_20251231_102552.json
+ai_platform/qa_test_results_20251231_103928.json

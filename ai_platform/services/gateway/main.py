@@ -231,7 +231,9 @@ async def chat(agent_key: str, request: ChatRequest):
     Returns the agent's response with suggestions and metadata.
     """
     try:
-        response = await http_client.post(f"/chat/{agent_key}", json=request.dict())
+        # Exclude None values to avoid validation errors in chat-service
+        request_dict = request.dict(exclude_none=True)
+        response = await http_client.post(f"/chat/{agent_key}", json=request_dict)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:
@@ -258,10 +260,12 @@ async def chat_stream(agent_key: str, request: ChatRequest):
         # The context manager will stay open as long as the generator is active
         async with httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=300.0) as client:
             try:
+                # Exclude None values to avoid validation errors in chat-service
+                request_dict = request.dict(exclude_none=True)
                 async with client.stream(
                     "POST",
                     f"/chat/{agent_key}/stream",
-                    json=request.dict()
+                    json=request_dict
                 ) as response:
                     response.raise_for_status()
                     async for chunk in response.aiter_bytes():
