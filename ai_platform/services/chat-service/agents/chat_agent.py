@@ -1,6 +1,7 @@
 import datetime
 import logging
 import re
+import time
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
@@ -13,6 +14,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
 from agents.litellm_compat import create_litellm_compatible_client
 from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
+from monitoring import ExecutionTrace, trace_collector
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ class ChatDependencies:
     tool_results: Dict[str, Any] = field(default_factory=dict)  # Results from tool calls
     history: List[Dict[str, Any]] = field(default_factory=list)  # Conversation history
     shared_context: Dict[str, Any] = field(default_factory=dict)  # Shared context for routing
+    agent_key: str = "unknown"  # Current agent key for monitoring
 
 
 class ChatAgent(BaseAgent):
@@ -692,7 +695,27 @@ Returns:
         request: AgentRequest,
         history: Optional[List[Dict[str, Any]]] = None,
         shared_context: Optional[Dict[str, Any]] = None,
+        agent_key: str = "unknown",
     ) -> AgentResponse:
+        # Start timing for performance tracking
+        start_time = time.time()
+
+        # Initialize trace
+        agent_name = getattr(self.agent_config, 'agent_name', self.config.name)
+        # agent_key will be updated from dependencies after they're created
+
+        trace = ExecutionTrace(
+            session_id=request.session_id or "no-session",
+            agent_key=agent_key,
+            agent_name=agent_name,
+            timestamp=datetime.datetime.now(),
+            system_prompt="",  # Will be set later
+            user_message_original=request.message,
+            user_message_final="",  # Will be set after context injection
+            shared_context=shared_context or {},
+            message_history_count=len(history) if history else 0
+        )
+
         # Convert persisted history into pydantic_ai format
         history_len = len(history) if history else 0
         logger.info(f"Processing request for session {request.session_id}: received history with {history_len} messages")
@@ -711,6 +734,9 @@ Returns:
             shared_context or {},
             last_user_messages
         )
+
+        # Capture system prompt in trace
+        trace.system_prompt = dynamic_system_prompt
 
         # Set system prompt on the agent before calling run()
         # This is the correct way to dynamically change system prompts in pydantic-ai
@@ -735,6 +761,7 @@ Returns:
             agent_config=self.agent_config,
             history=history or [],
             shared_context=shared_context or {},
+            agent_key=agent_key,
         )
 
         # Build user message with context prepended for better recall
@@ -759,6 +786,9 @@ Returns:
                 # Format: Hidden context that model should use but NEVER repeat
                 user_message = f"<internal_context>{context_summary}</internal_context>\n{user_message}"
 
+        # Capture final user message in trace (after all modifications)
+        trace.user_message_final = user_message
+
         # Log complete LLM input for debugging
         self._log_llm_input(
             agent_name=agent_name,
@@ -777,22 +807,46 @@ Returns:
             deps=deps,
         )
         assistant_output = result.output
+
+        # Capture LLM output (raw, before post-processing)
+        trace.llm_output_raw = assistant_output
+
+        # Capture tool calls from dependencies
+        if deps.tool_results:
+            for tool_name, tool_result in deps.tool_results.items():
+                trace.tool_calls.append({
+                    "name": tool_name,
+                    "result": str(tool_result)[:500] if tool_result else "None",  # Limit size
+                    "timestamp": datetime.datetime.now().isoformat()
+                })
         
         # Post-process: Validate konesh scope (must be before other post-processing)
+        original_output = assistant_output
         assistant_output = self._validate_konesh_scope(request.message, assistant_output)
-        
+        if assistant_output != original_output:
+            trace.post_processing_applied.append("konesh_scope_validation")
+
         # Post-process: Remove unwanted extra text/paragraphs
+        original_output = assistant_output
         assistant_output = self._remove_unwanted_extra_text(assistant_output)
-        
+        if assistant_output != original_output:
+            trace.post_processing_applied.append("remove_unwanted_text")
+
         # Post-process: Convert AI-perspective suggestions to user perspective
+        original_output = assistant_output
         assistant_output = self._convert_suggestions_to_user_perspective(assistant_output)
-        
+        if assistant_output != original_output:
+            trace.post_processing_applied.append("convert_suggestions_perspective")
+
         # Post-process: Ensure suggestions section is always present
+        original_output = assistant_output
         assistant_output = self._ensure_suggestions_section(
             assistant_output,
             deps.tool_results,
             request.message
         )
+        if assistant_output != original_output:
+            trace.post_processing_applied.append("ensure_suggestions_section")
 
         # Check if routing to a specialist agent occurred
         # If so, use the specialist's updated history instead of creating new one
@@ -845,6 +899,33 @@ Returns:
             "model": self.config.model,
             "history": updated_history,
         }
+
+        # Finalize trace
+        trace.final_response = assistant_output
+        trace.execution_time_ms = (time.time() - start_time) * 1000
+
+        # Capture routing decision if available
+        if "routed_agent_history" in deps.tool_results:
+            trace.routing_decision = {
+                "routed": True,
+                "target_agent": deps.tool_results.get("routed_agent_key", "unknown"),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+
+        # Build full LLM input for debugging
+        llm_input_parts = []
+        if dynamic_system_prompt:
+            llm_input_parts.append(f"[SYSTEM PROMPT]\n{dynamic_system_prompt}\n")
+        if message_history:
+            llm_input_parts.append(f"\n[HISTORY] {len(message_history)} messages\n")
+            for msg in message_history[-3:]:  # Last 3 for context
+                llm_input_parts.append(f"{str(msg)[:200]}...\n")
+        llm_input_parts.append(f"\n[USER MESSAGE]\n{user_message}")
+        trace.llm_input_full = "\n".join(llm_input_parts)
+
+        # Add trace to collector
+        trace_collector.add_trace(trace)
+        logger.debug(f"Added trace for session {request.session_id}, execution time: {trace.execution_time_ms:.2f}ms")
 
         return AgentResponse(
             session_id=request.session_id,

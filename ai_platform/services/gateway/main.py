@@ -56,6 +56,7 @@ http_client = httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=60.0)
 STATIC_FILES_PATH = Path("/app")
 CHAT_HTML_PATH = STATIC_FILES_PATH / "Chat.html"
 ICON_PATH = STATIC_FILES_PATH / "Icon.png"
+MONITORING_DASHBOARD_PATH = STATIC_FILES_PATH / "monitoring_dashboard.html"
 
 
 # =============================================================================
@@ -116,13 +117,30 @@ async def serve_chat_ui():
 async def serve_icon():
     """
     Serve the application icon.
-    
+
     Returns the Icon.png file used in the UI.
     """
     if ICON_PATH.exists():
         return FileResponse(ICON_PATH, media_type="image/png")
     else:
         raise HTTPException(status_code=404, detail="Icon.png not found")
+
+@app.get("/monitoring/dashboard", response_class=HTMLResponse, tags=["Monitoring", "UI"])
+async def serve_monitoring_dashboard():
+    """
+    Serve the Monitoring Dashboard UI.
+
+    Returns an interactive dashboard for monitoring agent execution traces,
+    system prompts, KB queries, tool calls, and performance metrics.
+    """
+    if MONITORING_DASHBOARD_PATH.exists():
+        return FileResponse(
+            MONITORING_DASHBOARD_PATH,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"}
+        )
+    else:
+        raise HTTPException(status_code=404, detail="monitoring_dashboard.html not found")
 
 @app.get("/health", tags=["Health"], response_model=HealthResponse)
 async def health():
@@ -340,6 +358,106 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+# =============================================================================
+# Monitoring API Endpoints (Forward to chat-service)
+# =============================================================================
+
+@app.get("/monitoring/traces", tags=["Monitoring"])
+async def get_monitoring_traces(
+    session_id: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    limit: int = 50
+):
+    """
+    Get execution traces for monitoring and debugging.
+
+    Forwards the request to chat-service monitoring endpoint.
+    Returns execution traces with system prompts, KB queries, tool calls, and performance metrics.
+    """
+    try:
+        params = {"limit": limit}
+        if session_id:
+            params["session_id"] = session_id
+        if agent_key:
+            params["agent_key"] = agent_key
+
+        response = await http_client.get("/monitoring/traces", params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/traces/recent", tags=["Monitoring"])
+async def get_recent_monitoring_traces(count: int = 20):
+    """
+    Get the most recent execution traces.
+
+    Returns the N most recent traces for live monitoring dashboards.
+    """
+    try:
+        response = await http_client.get("/monitoring/traces/recent", params={"count": count})
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/trace/{trace_id}", tags=["Monitoring"])
+async def get_monitoring_trace(trace_id: str):
+    """
+    Get a specific trace by its ID.
+
+    Returns complete details of a single execution trace.
+    """
+    try:
+        response = await http_client.get(f"/monitoring/trace/{trace_id}")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/stats", tags=["Monitoring"])
+async def get_monitoring_stats():
+    """
+    Get monitoring statistics.
+
+    Returns aggregate statistics about collected traces.
+    """
+    try:
+        response = await http_client.get("/monitoring/stats")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.delete("/monitoring/traces", tags=["Monitoring"])
+async def clear_monitoring_traces():
+    """
+    Clear all collected traces.
+
+    Removes all traces from memory. Use with caution.
+    """
+    try:
+        response = await http_client.delete("/monitoring/traces")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
 
 @app.on_event("shutdown")
 async def shutdown():
