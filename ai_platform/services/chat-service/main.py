@@ -4,6 +4,7 @@ import uuid
 import logging
 import json
 import time
+import datetime
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -1291,19 +1292,40 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             
             # Process the request
             logging.info(f"Processing request with agent: {agent_key}")
-            response = await agent.process(request, history, shared_context, agent_key=agent_key)
-            logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
-            
-            # Post-process the output (same as regular endpoint)
-            output = response.output
+            try:
+                response = await agent.process(request, history, shared_context, agent_key=agent_key)
+                logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
+                
+                if not response:
+                    logging.error("❌ Agent.process() returned None!")
+                    yield f"data: {json.dumps({'error': 'Agent returned no response'})}\n\n"
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+                    return
+                
+                if not response.output or len(response.output.strip()) == 0:
+                    logging.warning("⚠️ Agent returned empty output!")
+                    yield f"data: {json.dumps({'error': 'Agent returned empty response'})}\n\n"
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+                    return
+                
+                # Post-process the output (same as regular endpoint)
+                output = response.output
+                logging.info(f"✅ Response received, starting to stream output (length: {len(output)})")
+            except Exception as process_error:
+                logging.error(f"❌ Error in agent.process(): {process_error}", exc_info=True)
+                yield f"data: {json.dumps({'error': f'Processing error: {str(process_error)}'})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+                return
             
             # Stream the output word by word for better UX
+            logging.info(f"Starting to stream {len(output.split(' '))} words")
             words = output.split(" ")
             for i, word in enumerate(words):
                 chunk = word + (" " if i < len(words) - 1 else "")
                 yield f"data: {json.dumps({'chunk': chunk})}\n\n"
                 await asyncio.sleep(0.01)  # Small delay for smooth streaming (10ms per word)
             
+            logging.info("✅ Finished streaming all chunks, sending done signal")
             # Send done signal
             yield f"data: {json.dumps({'done': True})}\n\n"
             

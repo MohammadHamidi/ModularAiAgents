@@ -801,12 +801,21 @@ Returns:
         # Run the agent with tool support
         # The system prompt has already been set on self.agent.system_prompt above
         logger.info(f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history")
-        result = await self.agent.run(
-            user_message,
-            message_history=message_history,
-            deps=deps,
-        )
-        assistant_output = result.output
+        try:
+            result = await self.agent.run(
+                user_message,
+                message_history=message_history,
+                deps=deps,
+            )
+            assistant_output = result.output
+            logger.info(f"Agent.run() completed successfully. Output length: {len(assistant_output) if assistant_output else 0}")
+            if not assistant_output or len(assistant_output.strip()) == 0:
+                logger.warning("⚠️ Agent returned empty output! This may indicate an issue with the model or prompt.")
+        except Exception as e:
+            logger.error(f"❌ Error in agent.run(): {e}", exc_info=True)
+            # Return a fallback response instead of crashing
+            assistant_output = "متأسفانه در پردازش درخواست شما خطایی رخ داد. لطفاً دوباره تلاش کنید."
+            raise  # Re-raise to be handled by the endpoint
 
         # Capture LLM output (raw, before post-processing)
         trace.llm_output_raw = assistant_output

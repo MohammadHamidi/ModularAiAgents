@@ -133,7 +133,8 @@ class AgentRouterTool(Tool):
             response = await specialist_agent.process(
                 request,
                 history=history_to_pass,
-                shared_context=shared_context or {}
+                shared_context=shared_context or {},
+                agent_key=agent_key  # Pass the correct agent_key for monitoring
             )
 
             logger.info(f"Received response from agent '{agent_key}': {len(response.output)} chars")

@@ -957,13 +957,8 @@
                 const streamResponse = await aiClient.sendMessage(message, true);
                 console.log('Stream response received:', streamResponse);
                 
-                // Hide typing indicator
-                if (typingIndicator) {
-                    typingIndicator.remove();
-                }
-                
-                // Show message div immediately (will be populated as chunks arrive)
-                messageDiv.style.display = 'block';
+                // Keep typing indicator visible until first chunk arrives
+                // Don't remove it here - wait for actual data
                 
                 // Update session ID if available (check both initial and during stream)
                 const updateSessionId = (sessionId) => {
@@ -993,10 +988,8 @@
                     console.log('Starting to read stream...');
                     for await (const chunk of streamResponse.stream()) {
                         if (!hasReceivedData) {
-                            // First chunk received
-                            if (typingIndicator && typingIndicator.parentNode) {
-                                typingIndicator.remove();
-                            }
+                            // First chunk received - NOW remove typing indicator and show message
+                            hideTyping();
                             messageDiv.style.display = 'block';
                             hasReceivedData = true;
                             console.log('First chunk received:', chunk.substring(0, 50));
@@ -1016,18 +1009,22 @@
                     // If no data was received, show an error
                     if (!hasReceivedData && fullText.length === 0) {
                         console.warn('Stream completed but no chunks were received');
+                        // Remove typing indicator if still visible
+                        hideTyping();
+                        messageDiv.style.display = 'block';
                         streamingContent.innerHTML = '<p class="text-red-500">خطا: هیچ پاسخی از سرور دریافت نشد. لطفا دوباره تلاش کنید.</p>';
                     }
                 } catch (streamError) {
                     console.error('Error while reading stream:', streamError);
+                    // Remove typing indicator on stream error
+                    hideTyping();
+                    messageDiv.style.display = 'block';
                     streamingContent.innerHTML = `<p class="text-red-500">خطا در دریافت پاسخ: ${escapeHtml(streamError.message)}</p>`;
                     throw streamError;
                 }
                 
                 // Ensure typing indicator is removed if still visible
-                if (typingIndicator && typingIndicator.parentNode) {
-                    typingIndicator.remove();
-                }
+                hideTyping();
 
                 // Get final response for suggestions
                 const finalResponse = await streamResponse.getFullResponse();
@@ -1084,9 +1081,7 @@
             } catch (error) {
                 console.error('Streaming error:', error);
                 // Remove typing indicator on error
-                if (typingIndicator && typingIndicator.parentNode) {
-                    typingIndicator.remove();
-                }
+                hideTyping();
                 messageDiv.style.display = 'block';
                 
                 // Fallback to non-streaming

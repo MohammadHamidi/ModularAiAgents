@@ -53,10 +53,30 @@ http_client = httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=60.0)
 
 # Path to static files (Chat.html and other UI files)
 # In Docker, the project root is mounted at /app
-STATIC_FILES_PATH = Path("/app")
-CHAT_HTML_PATH = STATIC_FILES_PATH / "Chat.html"
-ICON_PATH = STATIC_FILES_PATH / "Icon.png"
-MONITORING_DASHBOARD_PATH = STATIC_FILES_PATH / "monitoring_dashboard.html"
+# For local development, try multiple paths
+def find_static_file(filename: str) -> Path:
+    """Find static file in Docker or local development paths"""
+    # Try Docker path first
+    docker_path = Path("/app") / filename
+    if docker_path.exists():
+        return docker_path
+    
+    # Try local development paths (relative to gateway service)
+    local_paths = [
+        Path(__file__).parent.parent.parent / filename,  # ai_platform/filename
+        Path(__file__).parent.parent / filename,  # services/filename
+    ]
+    
+    for path in local_paths:
+        if path.exists():
+            return path
+    
+    # Return Docker path as default (will raise 404 if not found)
+    return docker_path
+
+CHAT_HTML_PATH = find_static_file("Chat.html")
+ICON_PATH = find_static_file("Icon.png")
+MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 
 
 # =============================================================================

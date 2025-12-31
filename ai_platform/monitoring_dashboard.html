@@ -345,10 +345,18 @@
             overflow-x: auto;
             white-space: pre-wrap;
             word-wrap: break-word;
-            max-height: 400px;
-            overflow-y: auto;
             line-height: 1.6;
             position: relative;
+        }
+
+        .code-block.expandable {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .code-block.full-text {
+            max-height: none;
+            overflow-y: visible;
         }
 
         .code-block-header {
@@ -363,6 +371,28 @@
             font-size: 11px;
             background: var(--accent);
             color: white;
+            cursor: pointer;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .copy-btn.copied {
+            background: var(--success);
+        }
+
+        .expand-btn {
+            padding: 4px 10px;
+            font-size: 11px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            cursor: pointer;
+            margin-left: 8px;
+        }
+
+        .expand-btn:hover {
+            background: var(--separator);
         }
 
         .timeline {
@@ -584,7 +614,38 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        const API_URL = window.location.origin;
+        // Determine API URL - handle both served (http/https) and file:// cases
+        function getApiUrl() {
+            // Check for URL parameter first (e.g., ?api_url=http://localhost:8003)
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlParamApi = urlParams.get('api_url');
+            if (urlParamApi) {
+                console.log('Using API URL from URL parameter:', urlParamApi);
+                return urlParamApi;
+            }
+            
+            // Check localStorage for saved URL
+            const savedUrl = localStorage.getItem('monitoring_api_url');
+            if (savedUrl) {
+                console.log('Using API URL from localStorage:', savedUrl);
+                return savedUrl;
+            }
+            
+            const origin = window.location.origin;
+            // If opened from file:// or origin is empty/null, use default gateway URL
+            if (!origin || origin === 'null' || origin.startsWith('file://')) {
+                // Default to localhost:8003 (gateway port)
+                const defaultUrl = 'http://localhost:8003';
+                console.log('Using default API URL (file:// detected):', defaultUrl);
+                console.log('Tip: Access via http://localhost:8003/monitoring/dashboard or set ?api_url=...');
+                return defaultUrl;
+            }
+            
+            console.log('Using API URL from origin:', origin);
+            return origin;
+        }
+        
+        const API_URL = getApiUrl();
         let autoRefreshInterval = null;
         let selectedTraceId = null;
         let allTraces = [];
@@ -609,7 +670,29 @@
             } catch (error) {
                 console.error('Error fetching traces:', error);
                 updateStatus('offline');
-                showToast('Failed to fetch traces');
+                
+                // Provide helpful error message
+                let errorMsg = 'Failed to fetch traces';
+                if (error.message && error.message.includes('Failed to fetch')) {
+                    errorMsg = `Cannot connect to ${API_URL}. Make sure the gateway is running.`;
+                }
+                showToast(errorMsg);
+                
+                // Show helpful message in trace list if empty
+                const container = document.getElementById('traceList');
+                if (container && container.children.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <p><strong>Connection Error</strong></p>
+                            <p>Cannot connect to API at: ${API_URL}</p>
+                            <p style="margin-top: 12px; font-size: 11px; color: var(--text-tertiary);">
+                                Make sure the gateway service is running.<br>
+                                If using file://, try accessing via:<br>
+                                <code style="background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px;">http://localhost:8003/monitoring/dashboard</code>
+                            </p>
+                        </div>
+                    `;
+                }
             }
         }
 
@@ -699,57 +782,96 @@
 
                 <div class="section">
                     <div class="section-title">💬 User Message</div>
-                    <div class="code-block">${escapeHtml(trace.user_message_original)}</div>
+                    <div class="code-block-header">
+                        <button class="copy-btn" data-copy-text="${escapeHtml(trace.user_message_original).replace(/"/g, '&quot;')}">📋 Copy</button>
+                    </div>
+                    <div class="code-block full-text" id="user-message">${escapeHtml(trace.user_message_original)}</div>
                 </div>
 
                 <div class="section">
                     <div class="section-title">⚙️ System Prompt</div>
-                    <div class="code-block">${escapeHtml(trace.system_prompt.substring(0, 1000))}${trace.system_prompt.length > 1000 ? '...' : ''}</div>
+                    <div class="code-block-header">
+                        <button class="copy-btn" data-copy-text="${escapeHtml(trace.system_prompt).replace(/"/g, '&quot;')}">📋 Copy</button>
+                        ${trace.system_prompt.length > 2000 ? '<button class="expand-btn" data-expand-target="system-prompt" id="system-prompt-btn">Expand</button>' : ''}
+                    </div>
+                    <div class="code-block ${trace.system_prompt.length > 2000 ? 'expandable' : 'full-text'}" id="system-prompt">${escapeHtml(trace.system_prompt)}</div>
                 </div>
 
                 ${trace.kb_queries.length > 0 ? `
                 <div class="section">
                     <div class="section-title">🔍 KB Queries</div>
-                    ${trace.kb_queries.map((kb, i) => `
+                    ${trace.kb_queries.map((kb, i) => {
+                        const queryText = escapeHtml(kb.query || 'N/A');
+                        const resultText = escapeHtml(kb.result || '');
+                        const resultId = `kb-result-${i}`;
+                        const isLong = resultText.length > 500;
+                        return `
                         <div class="kb-item">
                             <div class="kb-item-header">
                                 <span class="kb-badge">Query ${i + 1}</span>
+                                <div>
+                                    <button class="copy-btn" data-copy-text="${queryText.replace(/"/g, '&quot;')}">📋 Copy Query</button>
+                                    <button class="copy-btn" data-copy-text="${resultText.replace(/"/g, '&quot;')}">📋 Copy Result</button>
+                                    ${isLong ? `<button class="expand-btn" data-expand-target="${resultId}" id="${resultId}-btn">Expand</button>` : ''}
+                                </div>
                             </div>
-                            <div style="margin-bottom: 8px;"><strong>Query:</strong> ${escapeHtml(kb.query || 'N/A')}</div>
-                            <div><strong>Result:</strong> ${escapeHtml((kb.result || '').substring(0, 200))}...</div>
+                            <div style="margin-bottom: 8px;"><strong>Query:</strong> <span id="kb-query-${i}">${queryText}</span></div>
+                            <div><strong>Result:</strong> <div class="code-block ${isLong ? 'expandable' : 'full-text'}" id="${resultId}">${resultText}</div></div>
                         </div>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </div>
                 ` : ''}
 
                 ${trace.tool_calls.length > 0 ? `
                 <div class="section">
                     <div class="section-title">🛠️ Tool Calls</div>
-                    ${trace.tool_calls.map((tool, i) => `
+                    ${trace.tool_calls.map((tool, i) => {
+                        const toolResult = escapeHtml(tool.result || '');
+                        const toolId = `tool-result-${i}`;
+                        const isLong = toolResult.length > 500;
+                        return `
                         <div class="tool-item">
                             <div class="tool-item-header">
                                 <span class="tool-badge">${tool.name}</span>
-                                <span class="trace-timestamp">${new Date(tool.timestamp).toLocaleTimeString()}</span>
+                                <div>
+                                    <span class="trace-timestamp">${new Date(tool.timestamp).toLocaleTimeString()}</span>
+                                    <button class="copy-btn" data-copy-text="${toolResult.replace(/"/g, '&quot;')}">📋 Copy</button>
+                                    ${isLong ? `<button class="expand-btn" data-expand-target="${toolId}" id="${toolId}-btn">Expand</button>` : ''}
+                                </div>
                             </div>
-                            <div><strong>Result:</strong> ${escapeHtml((tool.result || '').substring(0, 200))}...</div>
+                            <div><strong>Result:</strong> <div class="code-block ${isLong ? 'expandable' : 'full-text'}" id="${toolId}">${toolResult}</div></div>
                         </div>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </div>
                 ` : ''}
 
                 <div class="section">
                     <div class="section-title">🤖 LLM Input (Complete)</div>
-                    <div class="code-block">${escapeHtml(trace.llm_input_full.substring(0, 2000))}${trace.llm_input_full.length > 2000 ? '...' : ''}</div>
+                    <div class="code-block-header">
+                        <button class="copy-btn" data-copy-text="${escapeHtml(trace.llm_input_full).replace(/"/g, '&quot;')}">📋 Copy</button>
+                        ${trace.llm_input_full.length > 2000 ? '<button class="expand-btn" data-expand-target="llm-input" id="llm-input-btn">Expand</button>' : ''}
+                    </div>
+                    <div class="code-block ${trace.llm_input_full.length > 2000 ? 'expandable' : 'full-text'}" id="llm-input">${escapeHtml(trace.llm_input_full)}</div>
                 </div>
 
                 <div class="section">
                     <div class="section-title">📤 LLM Output (Raw)</div>
-                    <div class="code-block">${escapeHtml(trace.llm_output_raw)}</div>
+                    <div class="code-block-header">
+                        <button class="copy-btn" data-copy-text="${escapeHtml(trace.llm_output_raw).replace(/"/g, '&quot;')}">📋 Copy</button>
+                        ${trace.llm_output_raw.length > 2000 ? '<button class="expand-btn" data-expand-target="llm-output" id="llm-output-btn">Expand</button>' : ''}
+                    </div>
+                    <div class="code-block ${trace.llm_output_raw.length > 2000 ? 'expandable' : 'full-text'}" id="llm-output">${escapeHtml(trace.llm_output_raw)}</div>
                 </div>
 
                 <div class="section">
                     <div class="section-title">✅ Final Response</div>
-                    <div class="code-block">${escapeHtml(trace.final_response)}</div>
+                    <div class="code-block-header">
+                        <button class="copy-btn" data-copy-text="${escapeHtml(trace.final_response).replace(/"/g, '&quot;')}">📋 Copy</button>
+                        ${trace.final_response.length > 2000 ? '<button class="expand-btn" data-expand-target="final-response" id="final-response-btn">Expand</button>' : ''}
+                    </div>
+                    <div class="code-block ${trace.final_response.length > 2000 ? 'expandable' : 'full-text'}" id="final-response">${escapeHtml(trace.final_response)}</div>
                 </div>
 
                 ${trace.post_processing_applied.length > 0 ? `
@@ -845,6 +967,76 @@
             div.textContent = text;
             return div.innerHTML;
         }
+
+        function copyToClipboard(btn, text) {
+            // Get text from data attribute if not provided
+            let textToCopy = text;
+            if (!textToCopy && btn) {
+                textToCopy = btn.getAttribute('data-copy-text');
+                // Decode HTML entities
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = textToCopy;
+                textToCopy = tempDiv.textContent || tempDiv.innerText || '';
+            }
+            
+            if (!textToCopy) {
+                showToast('No text to copy');
+                return;
+            }
+            
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                if (btn) {
+                    const originalText = btn.textContent;
+                    btn.textContent = '✓ Copied!';
+                    btn.classList.add('copied');
+                    
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.classList.remove('copied');
+                    }, 2000);
+                }
+                
+                showToast('Copied to clipboard');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                showToast('Failed to copy');
+            });
+        }
+
+        function toggleExpand(elementId) {
+            const element = document.getElementById(elementId);
+            const btn = document.getElementById(elementId + '-btn');
+            
+            if (!element) return;
+            
+            if (element.classList.contains('expandable')) {
+                element.classList.remove('expandable');
+                element.classList.add('full-text');
+                if (btn) btn.textContent = 'Collapse';
+            } else {
+                element.classList.remove('full-text');
+                element.classList.add('expandable');
+                if (btn) btn.textContent = 'Expand';
+            }
+        }
+
+        // Event delegation for copy buttons and expand buttons
+        document.addEventListener('click', function(e) {
+            // Handle copy buttons
+            if (e.target.classList.contains('copy-btn')) {
+                e.preventDefault();
+                copyToClipboard(e.target);
+            }
+            
+            // Handle expand buttons
+            if (e.target.classList.contains('expand-btn')) {
+                e.preventDefault();
+                const targetId = e.target.getAttribute('data-expand-target');
+                if (targetId) {
+                    toggleExpand(targetId);
+                }
+            }
+        });
     </script>
 </body>
 </html>

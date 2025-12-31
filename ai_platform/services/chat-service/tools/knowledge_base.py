@@ -28,9 +28,9 @@ class KnowledgeBaseTool(Tool):
             },
             "mode": {
                 "type": "string",
-                "description": "Retrieval mode",
+                "description": "Retrieval mode (recommended: 'mix' for best results)",
                 "enum": ["mix", "hybrid", "local", "global", "naive", "bypass"],
-                "default": "hybrid"
+                "default": "mix"
             },
             "include_references": {
                 "type": "boolean",
@@ -93,8 +93,9 @@ class KnowledgeBaseTool(Tool):
         self.base_url = os.getenv("LIGHTRAG_BASE_URL", "").rstrip("/")
         self.username = os.getenv("LIGHTRAG_USERNAME")
         self.password = os.getenv("LIGHTRAG_PASSWORD")
-        self.api_key = os.getenv("LIGHTRAG_API_KEY_HEADER_VALUE")
+        self.api_key = os.getenv("LIGHTRAG_API_KEY_HEADER_VALUE") or os.getenv("LIGHTRAG_API_KEY")
         self.bearer_token = os.getenv("LIGHTRAG_BEARER_TOKEN")
+        self.workspace = os.getenv("LIGHTRAG_WORKSPACE")
         self._cached_token = None
     
     async def _get_auth_token(self, client: httpx.AsyncClient) -> Optional[str]:
@@ -145,9 +146,13 @@ class KnowledgeBaseTool(Tool):
                     if token:
                         headers["Authorization"] = f"Bearer {token}"
                     
-                    # Try API key as query param
+                    # Try API key header (X-API-Key as per LightRAG docs)
                     if self.api_key and not token:
-                        params["api_key_header_value"] = self.api_key
+                        headers["X-API-Key"] = self.api_key
+                    
+                    # Add workspace header if configured (for multi-workspace support)
+                    if self.workspace:
+                        headers["LIGHTRAG-WORKSPACE"] = self.workspace
                     
                     # If no auth method, try /auth-status for guest token
                     if not token and not self.api_key:
@@ -170,10 +175,18 @@ class KnowledgeBaseTool(Tool):
                     response.raise_for_status()
                     result = response.json()
                     
-                    # Log if response is empty or malformed
-                    if not result.get("response") and not payload.get("only_need_context") and not payload.get("only_need_prompt"):
-                        logging.warning(f"LightRAG query returned empty response for query: {payload.get('query', '')[:50]}")
-                        logging.debug(f"LightRAG response: {result}")
+                    # Log if response is empty or malformed (only for full responses, not context-only)
+                    if not payload.get("only_need_context") and not payload.get("only_need_prompt"):
+                        if not result.get("response"):
+                            logging.warning(f"LightRAG query returned empty response for query: {payload.get('query', '')[:50]}")
+                            logging.debug(f"LightRAG response: {result}")
+                    else:
+                        # For context-only queries, log what we got
+                        context = result.get("response", result.get("context", ""))
+                        if context:
+                            logging.debug(f"LightRAG context retrieved: {len(context)} chars, {len(result.get('references', []))} references")
+                        else:
+                            logging.warning(f"LightRAG context-only query returned no context for: {payload.get('query', '')[:50]}")
                     
                     return result
             except httpx.HTTPStatusError as e:
@@ -218,9 +231,9 @@ class KnowledgeBaseTool(Tool):
     async def execute(
         self,
         query: str,
-        mode: str = "hybrid",
+        mode: str = "mix",
         include_references: bool = True,
-        include_chunk_content: bool = False,
+        include_chunk_content: bool = True,
         response_type: str = "Multiple Paragraphs",
         top_k: int = 10,
         chunk_top_k: int = 8,
@@ -236,15 +249,20 @@ class KnowledgeBaseTool(Tool):
         payload = {
             "query": query.strip(),
             "mode": mode,
+            "only_need_context": only_need_context,
             "include_references": include_references,
             "include_chunk_content": include_chunk_content,
-            "response_type": response_type,
-            "top_k": top_k,
-            "chunk_top_k": chunk_top_k,
-            "max_total_tokens": max_total_tokens,
-            "only_need_context": only_need_context,
-            "only_need_prompt": only_need_prompt
+            "top_k": top_k
         }
+        
+        # Only include these fields if not using only_need_context
+        if not only_need_context:
+            payload.update({
+                "response_type": response_type,
+                "chunk_top_k": chunk_top_k,
+                "max_total_tokens": max_total_tokens,
+                "only_need_prompt": only_need_prompt
+            })
         
         if conversation_history:
             payload["conversation_history"] = conversation_history
@@ -274,7 +292,8 @@ class KnowledgeBaseTool(Tool):
         
         if only_need_context:
             # Return only context without LLM-generated response
-            context = result.get("context", "")
+            # When only_need_context=true, LightRAG returns context in the "response" field
+            context = result.get("response", result.get("context", ""))
             references = result.get("references", [])
             
             if context:
@@ -284,8 +303,14 @@ class KnowledgeBaseTool(Tool):
                     formatted += "\n\nSources: "
                     citation_parts = []
                     for i, ref in enumerate(references, 1):
-                        file_path = ref.get("file_path", ref.get("path", "unknown"))
-                        citation_parts.append(f"[{i}] {file_path}")
+                        # Handle different reference formats
+                        if isinstance(ref, str):
+                            citation_parts.append(f"[{i}] {ref}")
+                        elif isinstance(ref, dict):
+                            file_path = ref.get("file_path", ref.get("path", ref.get("source", "unknown")))
+                            citation_parts.append(f"[{i}] {file_path}")
+                        else:
+                            citation_parts.append(f"[{i}] {str(ref)}")
                     formatted += ", ".join(citation_parts)
                 return formatted
             else:
