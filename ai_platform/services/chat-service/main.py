@@ -30,6 +30,9 @@ from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool, GetCompanyInfoTool
 from tools.konesh_query import KoneshQueryTool
 
+# Import monitoring
+from monitoring import trace_collector
+
 load_dotenv()
 
 # Initialize logging
@@ -661,7 +664,7 @@ async def chat(agent_key: str, request: AgentRequest):
 
     # Process with agent (history + structured shared context)
     request.session_id = str(sid)
-    response = await agent.process(request, history, shared_context)
+    response = await agent.process(request, history, shared_context, agent_key=agent_key)
 
     # Debug log: after agent processing, before persistence
     _agent_debug_log(
@@ -1093,13 +1096,115 @@ async def export_config():
     }
 
 
+# =============================================================================
+# Monitoring API Endpoints
+# =============================================================================
+
+@app.get("/monitoring/traces", tags=["Monitoring"])
+async def get_traces(
+    session_id: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    limit: int = 50
+):
+    """
+    Get execution traces for monitoring and debugging.
+
+    Returns a list of execution traces with optional filtering by session or agent.
+    Each trace contains complete information about the agent execution including
+    system prompt, user message, KB queries, tool calls, LLM input/output, and performance metrics.
+
+    - **session_id**: Optional filter by session ID
+    - **agent_key**: Optional filter by agent key
+    - **limit**: Maximum number of traces to return (default: 50, max: 100)
+    """
+    # Limit max to 100 for performance
+    limit = min(limit, 100)
+
+    traces = trace_collector.get_traces(
+        session_id=session_id,
+        agent_key=agent_key,
+        limit=limit
+    )
+
+    return {
+        "count": len(traces),
+        "traces": traces,
+        "filters": {
+            "session_id": session_id,
+            "agent_key": agent_key,
+            "limit": limit
+        }
+    }
+
+
+@app.get("/monitoring/traces/recent", tags=["Monitoring"])
+async def get_recent_traces(count: int = 20):
+    """
+    Get the most recent execution traces.
+
+    Returns the N most recent traces for live monitoring dashboards.
+
+    - **count**: Number of recent traces to return (default: 20, max: 50)
+    """
+    count = min(count, 50)
+    traces = trace_collector.get_recent_traces(count=count)
+
+    return {
+        "count": len(traces),
+        "traces": traces,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+
+
+@app.get("/monitoring/trace/{trace_id}", tags=["Monitoring"])
+async def get_trace_by_id(trace_id: str):
+    """
+    Get a specific trace by its ID.
+
+    Returns complete details of a single execution trace.
+
+    - **trace_id**: The unique identifier of the trace
+    """
+    trace = trace_collector.get_trace_by_id(trace_id)
+    if not trace:
+        raise HTTPException(404, f"Trace '{trace_id}' not found")
+
+    return trace
+
+
+@app.get("/monitoring/stats", tags=["Monitoring"])
+async def get_monitoring_stats():
+    """
+    Get monitoring statistics.
+
+    Returns aggregate statistics about collected traces including
+    total count, agent distribution, and average execution time.
+    """
+    stats = trace_collector.get_stats()
+    return stats
+
+
+@app.delete("/monitoring/traces", tags=["Monitoring"])
+async def clear_traces():
+    """
+    Clear all collected traces.
+
+    Removes all traces from memory. Use with caution.
+    """
+    trace_collector.clear_traces()
+    return {
+        "status": "cleared",
+        "message": "All traces have been cleared"
+    }
+
+
 @app.on_event("shutdown")
 async def shutdown():
     global http_client
-    
+
     await session_manager.dispose()
     await context_manager.engine.dispose()
-    
+
     # Close global http client
     if http_client is not None:
         await http_client.aclose()
@@ -1186,7 +1291,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             
             # Process the request
             logging.info(f"Processing request with agent: {agent_key}")
-            response = await agent.process(request, history, shared_context)
+            response = await agent.process(request, history, shared_context, agent_key=agent_key)
             logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
             
             # Post-process the output (same as regular endpoint)
