@@ -903,8 +903,13 @@ Returns:
             error_type = str(type(e))
             logger.error(f"❌ Error in agent.run(): {e}", exc_info=True)
             
+            # Handle timeout errors specifically
+            if isinstance(e, httpx.TimeoutException) or "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                logger.error("⏱️ Request timeout: LLM API call took too long (exceeded 120 seconds)")
+                assistant_output = "متأسفانه درخواست شما زمان زیادی طول کشید و متوقف شد. لطفاً دوباره تلاش کنید یا سوال خود را ساده‌تر مطرح کنید."
+            
             # Handle pydantic-ai validation errors specifically
-            if "output validation" in error_msg.lower() or "UnexpectedModelBehavior" in error_type:
+            elif "output validation" in error_msg.lower() or "UnexpectedModelBehavior" in error_type:
                 logger.warning("⚠️ Output validation error detected. This may be due to model response format issues.")
                 # Try to get partial output if available
                 try:

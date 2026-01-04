@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>راهنمای استفاده از چت هوشمند | سفیران آیه‌ها</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Optional Persian-friendly font -->
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Vazirmatn', system-ui, sans-serif;
+        }
+
+        pre {
+            direction: ltr;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 text-gray-800 leading-relaxed">
+
+    <!-- Container -->
+    <div class="max-w-6xl mx-auto px-4 py-10">
+
+        <!-- Header -->
+        <header class="mb-10">
+            <h1 class="text-3xl font-bold text-gray-900 mb-4">
+                راهنمای استفاده از چت هوشمند در وب‌سایت سفیران آیه‌ها
+            </h1>
+            <p class="text-gray-600">
+                این راهنما نحوه استفاده، پیاده‌سازی و تست چت هوشمند سفیران آیه‌ها را توضیح می‌دهد.
+            </p>
+        </header>
+
+        <!-- Section -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-semibold mb-4">آدرس Endpoint چت</h2>
+            <div class="bg-gray-100 rounded-lg p-4 font-mono text-sm text-left">
+                https://safrainai.pish.run/ui
+            </div>
+            <p class="mt-3 text-gray-600">
+                این endpoint هم با پارامتر رمزگذاری‌شده و هم بدون پارامتر قابل استفاده است.
+            </p>
+        </section>
+
+        <!-- Encryption -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-semibold mb-4">۱. رمزگذاری اطلاعات کاربر (اختیاری)</h2>
+
+            <ul class="list-disc list-inside mb-4 text-gray-700">
+                <li><strong>UserId</strong>: شناسه کاربر</li>
+                <li><strong>Path</strong>: مسیر صفحه فعلی (مثلاً <code>/konesh/list</code>)</li>
+            </ul>
+
+            <pre class="bg-gray-900 text-gray-100 rounded-lg p-5 overflow-x-auto text-sm">
+<code>
+public static string EncryptUserData(string userId, string path)
+{
+    var data = new { UserId = userId, Path = path };
+    string json = JsonSerializer.Serialize(data);
+
+    using var aes = Aes.Create();
+    aes.Key = Encoding.UTF8.GetBytes(Key);
+    aes.IV = Encoding.UTF8.GetBytes(IV);
+    aes.Mode = CipherMode.CBC;
+    aes.Padding = PaddingMode.PKCS7;
+
+    using var encryptor = aes.CreateEncryptor();
+    byte[] encrypted = encryptor.TransformFinalBlock(
+        Encoding.UTF8.GetBytes(json), 0, json.Length
+    );
+
+    return HttpUtility.UrlEncode(Convert.ToBase64String(encrypted));
+}
+</code>
+      </pre>
+        </section>
+
+        <!-- iframe methods -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-semibold mb-4">۲. قرار دادن چت در صفحه</h2>
+
+            <div class="space-y-8">
+
+                <!-- Method 1 -->
+                <div>
+                    <h3 class="text-xl font-semibold mb-2">روش ۱: بدون پارامتر (مهمان)</h3>
+                    <pre class="bg-gray-900 text-gray-100 rounded-lg p-5 overflow-x-auto text-sm">
+<code>
+&lt;iframe
+  src="https://safrainai.pish.run/ui"
+  class="w-full h-[600px] rounded-lg border-0"
+  allow="microphone; camera"&gt;
+&lt;/iframe&gt;
+</code>
+          </pre>
+                </div>
+
+                <!-- Method 2 -->
+                <div>
+                    <h3 class="text-xl font-semibold mb-2">
+                        روش ۲: با Query Parameter (پیشنهادی)
+                    </h3>
+                    <pre class="bg-gray-900 text-gray-100 rounded-lg p-5 overflow-x-auto text-sm">
+<code>
+&lt;iframe
+  src="https://safrainai.pish.run/ui?encrypted_param=ENCRYPTED_VALUE"
+  class="w-full h-[600px] rounded-lg border-0 shadow"
+  allow="microphone; camera"&gt;
+&lt;/iframe&gt;
+</code>
+          </pre>
+                    <p class="mt-2 text-green-700 font-medium">
+                        ✅ این روش برای محیط Production توصیه می‌شود
+                    </p>
+                </div>
+
+                <!-- Method 3 -->
+                <div>
+                    <h3 class="text-xl font-semibold mb-2">روش ۳: Path Parameter (اختیاری)</h3>
+                    <pre class="bg-gray-900 text-gray-100 rounded-lg p-5 overflow-x-auto text-sm">
+<code>
+&lt;iframe
+  src="https://safrainai.pish.run/ui/ENCRYPTED_VALUE"
+  class="w-full h-[600px] rounded-lg border-0"
+  allow="microphone; camera"&gt;
+&lt;/iframe&gt;
+</code>
+          </pre>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Agent Table -->
+        <section class="mb-10">
+            <h2 class="text-2xl font-semibold mb-4">انتخاب عامل هوشمند بر اساس مسیر</h2>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full border border-gray-200 rounded-lg">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="px-4 py-2 text-right border">مسیر</th>
+                            <th class="px-4 py-2 text-right border">عامل</th>
+                            <th class="px-4 py-2 text-right border">توضیح</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-t">
+                            <td class="px-4 py-2 border">/</td>
+                            <td class="px-4 py-2 border">guest_faq</td>
+                            <td class="px-4 py-2 border">صفحه اصلی</td>
+                        </tr>
+                        <tr class="border-t">
+                            <td class="px-4 py-2 border">/konesh/*</td>
+                            <td class="px-4 py-2 border">action_expert</td>
+                            <td class="px-4 py-2 border">تولید محتوا</td>
+                        </tr>
+                        <tr class="border-t">
+                            <td class="px-4 py-2 border">/profile/*</td>
+                            <td class="px-4 py-2 border">journey_register</td>
+                            <td class="px-4 py-2 border">پروفایل و ثبت‌نام</td>
+                        </tr>
+                        <tr class="border-t">
+                            <td class="px-4 py-2 border">سایر مسیرها</td>
+                            <td class="px-4 py-2 border">orchestrator</td>
+                            <td class="px-4 py-2 border">عامل پیش‌فرض</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="border-t pt-6 text-sm text-gray-500">
+            <p>© 2026 سفیران آیه‌ها — مستندات فنی چت هوشمند</p>
+        </footer>
+
+    </div>
+
+</body>
+
+</html>

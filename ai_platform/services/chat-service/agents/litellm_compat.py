@@ -81,9 +81,14 @@ def create_litellm_compatible_client() -> httpx.AsyncClient:
     hook to fix service_tier validation issues with LiteLLM-compatible APIs.
     
     Returns:
-        httpx.AsyncClient: Configured client with compatibility hooks
+        httpx.AsyncClient: Configured client with compatibility hooks and timeout
     """
-    return httpx.AsyncClient(event_hooks={"response": [rewrite_service_tier]})
+    # Set timeout to 120 seconds for LLM API calls (they can take longer)
+    # This prevents requests from hanging indefinitely
+    return httpx.AsyncClient(
+        event_hooks={"response": [rewrite_service_tier]},
+        timeout=120.0
+    )
 
 
 def create_openai_client(
