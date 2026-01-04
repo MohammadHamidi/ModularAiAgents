@@ -366,18 +366,10 @@ async def startup():
     # ==========================================================================
     logging.info("Initializing Safiranayeha integration...")
 
-    # Initialize Safiranayeha API client
+    # Initialize Safiranayeha API client (login will happen on-demand when needed)
     safiranayeha_client = SafiranayehaClient(http_client=http_client)
     set_safiranayeha_client(safiranayeha_client)
-    logging.info("Safiranayeha API client initialized")
-
-    # Test login to verify credentials
-    try:
-        await safiranayeha_client.login()
-        logging.info("✅ Safiranayeha API login successful")
-    except Exception as e:
-        logging.error(f"❌ Safiranayeha API login failed: {e}")
-        logging.error("Chat service will continue but Safiranayeha integration may not work")
+    logging.info("Safiranayeha API client initialized (authentication will occur on first use)")
 
     # Initialize path router
     path_router = PathRouter()

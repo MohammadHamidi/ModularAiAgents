@@ -390,11 +390,12 @@ The chat service automatically fetches user data from the Safiranayeha API:
 ### Authentication:
 
 - **Endpoint**: `https://api.safiranayeha.ir/api/AI/AILogin`
-- **Method**: POST
+- **Method**: Automatically attempts multiple methods (GET with query params, POST with JSON body, POST with form data, POST with query params)
 - **Credentials**:
   - Username: `AI`
   - Password: `2025@GmAiL.com`
 - **Returns**: JWT token
+- **Note**: The client automatically tries different HTTP methods to ensure compatibility with the API
 
 ### User Data Retrieval:
 
