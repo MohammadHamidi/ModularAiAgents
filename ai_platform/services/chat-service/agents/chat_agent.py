@@ -12,7 +12,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
-from agents.litellm_compat import create_litellm_compatible_client
+from agents.litellm_compat import create_litellm_compatible_client, create_openai_client
 from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
 from monitoring import ExecutionTrace, trace_collector
 
@@ -85,19 +85,39 @@ Returns:
 '''
 
     async def initialize(self, http_client: httpx.AsyncClient | None = None):
-        # Use provided http_client or create a new one
-        client = http_client or create_litellm_compatible_client()
+        """
+        Initialize the agent with an HTTP client.
+        
+        Args:
+            http_client: Shared httpx client with LiteLLM compatibility hooks.
+                        If None, creates a new client (not recommended - should use shared client).
+        
+        Note:
+            It's strongly recommended to pass the shared http_client from startup
+            to ensure all agents use the same client with compatibility hooks.
+        """
+        # Use provided http_client or create a new one (fallback only)
+        if http_client is None:
+            logger.warning(
+                "⚠️ No http_client provided to agent.initialize(). "
+                "Creating a new client, but shared client is recommended for consistency."
+            )
+            client = create_litellm_compatible_client()
+            self.http_client = client  # Store if we created it
+        else:
+            # Verify the client has the compatibility hook
+            if not hasattr(http_client, 'event_hooks') or 'response' not in http_client.event_hooks:
+                logger.warning(
+                    "⚠️ Provided http_client may not have LiteLLM compatibility hooks. "
+                    "This may cause service_tier validation issues."
+                )
+            client = http_client
+            self.http_client = None  # Don't store shared client (we don't own it)
 
         # Store the client reference for reinitialization
         self._stored_http_client = client
 
         await self._build_agent(client)
-
-        # Only store http_client if we created it ourselves
-        if http_client is None:
-            self.http_client = client
-        else:
-            self.http_client = None
     
     async def _build_agent(self, client: httpx.AsyncClient):
         """Build/rebuild the agent with current field configuration."""
@@ -112,44 +132,54 @@ Returns:
         
         logger.info(f"Building model with config: temperature={temperature}, max_tokens={max_tokens}")
         
-        # Create OpenAI client - temperature will be handled by LiteLLM/API
-        # For OpenAI-compatible APIs, temperature is typically sent per-request
-        openai_client = AsyncOpenAI(
+        # Create OpenAI client using factory function for consistency
+        # This ensures all clients use the shared http_client with compatibility hooks
+        openai_client = create_openai_client(
             api_key=self.config.extra.get("api_key"),
             base_url=self.config.extra.get("base_url"),
-            http_client=client,
-            # Note: OpenAI client doesn't support default temperature in constructor
-            # Temperature will need to be set per-request or via model configuration
+            http_client=client,  # MUST use shared client with hooks
         )
         provider = OpenAIProvider(openai_client=openai_client)
         
-        # Create model - in pydantic-ai, model parameters are typically set per-request
-        # For now, we'll rely on the API/LiteLLM to use default temperature
-        # The temperature setting in config serves as documentation and may be used
-        # by the API provider if it supports default model parameters
+        # Create model - pydantic-ai supports setting parameters via with_params()
         model = OpenAIChatModel(self.config.model, provider=provider)
         
-        # Try to set temperature on model if supported
-        # Some pydantic-ai versions support model.with_params() or similar
+        # Apply temperature and max_tokens to the model
+        # pydantic-ai's OpenAIChatModel supports with_params() for setting model parameters
+        # These parameters will be applied to all requests made with this model
         try:
-            # Try with_params method (if available in this version)
-            if hasattr(model, 'with_params') and callable(getattr(model, 'with_params')):
-                if temperature is not None:
-                    model = model.with_params(temperature=temperature)
-                if max_tokens is not None:
-                    model = model.with_params(max_tokens=max_tokens)
-                logger.info(f"✅ Applied model params via with_params: temperature={temperature}")
-            # Try setting as attribute (some versions might support this)
-            elif hasattr(model, 'temperature'):
-                model.temperature = temperature
-                if max_tokens is not None and hasattr(model, 'max_tokens'):
-                    model.max_tokens = max_tokens
-                logger.info(f"✅ Applied model params as attributes: temperature={temperature}")
+            params = {}
+            if temperature is not None:
+                params['temperature'] = temperature
+            if max_tokens is not None:
+                params['max_tokens'] = max_tokens
+            
+            if params:
+                # Try with_params method (preferred - works in pydantic-ai)
+                if hasattr(model, 'with_params') and callable(getattr(model, 'with_params')):
+                    model = model.with_params(**params)
+                    logger.info(f"✅ Applied model params via with_params: {params}")
+                # Fallback: try setting as attributes (some versions might support this)
+                elif hasattr(model, 'temperature') and 'temperature' in params:
+                    model.temperature = params['temperature']
+                    if 'max_tokens' in params and hasattr(model, 'max_tokens'):
+                        model.max_tokens = params['max_tokens']
+                    logger.info(f"✅ Applied model params as attributes: {params}")
+                else:
+                    # If neither method works, that's okay - we'll apply temperature per-request via model_settings
+                    logger.info(
+                        f"ℹ️ Model doesn't support with_params() or attribute setting. "
+                        f"Temperature {params.get('temperature')} and max_tokens {params.get('max_tokens')} "
+                        "will be applied per-request via model_settings in agent.run() calls."
+                    )
             else:
-                # Temperature will be handled by the API provider (LiteLLM) if it supports defaults
-                logger.info(f"ℹ️ Model doesn't support direct temperature setting. API provider (LiteLLM) may use default temperature.")
+                logger.info("ℹ️ No model params to apply (temperature and max_tokens are None)")
         except Exception as e:
-            logger.warning(f"Could not apply model params directly: {e}. API provider may handle temperature.")
+            logger.error(
+                f"❌ Failed to apply model params: {e}. "
+                "Temperature and max_tokens may not be applied correctly.",
+                exc_info=True
+            )
 
         # Build dynamic tool description BEFORE creating agent
         tool_doc = self._build_dynamic_tool_description()
@@ -844,12 +874,25 @@ Returns:
         
         # Run the agent with tool support
         # The system prompt has already been set on self.agent.system_prompt above
-        logger.info(f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history")
+        
+        # Prepare model settings for per-request temperature and max_tokens
+        # This ensures temperature is applied per-request (works with OpenAI-compatible APIs like LiteLLM/OpenRouter)
+        model_settings = {}
+        if hasattr(self, 'model_temperature') and self.model_temperature is not None:
+            model_settings['temperature'] = self.model_temperature
+        if hasattr(self, 'model_max_tokens') and self.model_max_tokens is not None:
+            model_settings['max_tokens'] = self.model_max_tokens
+        
+        logger.info(
+            f"Calling agent.run() with {len(message_history)} pydantic-ai messages in message_history"
+            + (f" and model_settings={model_settings}" if model_settings else "")
+        )
         try:
             result = await self.agent.run(
                 user_message,
                 message_history=message_history,
                 deps=deps,
+                model_settings=model_settings if model_settings else None,  # Pass per-request settings
             )
             assistant_output = result.output
             logger.info(f"Agent.run() completed successfully. Output length: {len(assistant_output) if assistant_output else 0}")

@@ -291,8 +291,8 @@ context_display:
 
 recent_messages_context:
   enabled: false # برای Guest/FAQ نیازی به تاریخچه نیست
-  count: 0
-  max_length: 150
+  count: 4
+  max_length: 1000
   header: "💬 پیام‌های اخیر:"
 
 model_config:

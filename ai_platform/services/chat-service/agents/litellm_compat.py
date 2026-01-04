@@ -5,6 +5,8 @@ Based on the working pattern from chat_session_memory.py
 """
 import httpx
 import json
+from typing import Optional
+from openai import AsyncOpenAI
 
 ALLOWED = {"auto", "default", "flex", "scale", "priority"}
 MAP = {"standard": "default", "on_demand": "default"}
@@ -72,5 +74,43 @@ async def rewrite_service_tier(resp: httpx.Response):
 
 
 def create_litellm_compatible_client() -> httpx.AsyncClient:
-    """Create an httpx client with LiteLLM compatibility fixes"""
+    """
+    Create an httpx client with LiteLLM compatibility fixes.
+    
+    This factory function ensures all HTTP clients use the rewrite_service_tier
+    hook to fix service_tier validation issues with LiteLLM-compatible APIs.
+    
+    Returns:
+        httpx.AsyncClient: Configured client with compatibility hooks
+    """
     return httpx.AsyncClient(event_hooks={"response": [rewrite_service_tier]})
+
+
+def create_openai_client(
+    api_key: Optional[str],
+    base_url: Optional[str],
+    http_client: httpx.AsyncClient
+) -> AsyncOpenAI:
+    """
+    Factory function to create an OpenAI-compatible client with consistent configuration.
+    
+    This ensures all LLM clients are created with the same pattern and use
+    the shared http_client with LiteLLM compatibility hooks.
+    
+    Args:
+        api_key: API key for the LLM service (can be None if not required)
+        base_url: Base URL for the LLM API endpoint
+        http_client: Shared httpx client with compatibility hooks (MUST use shared client)
+    
+    Returns:
+        AsyncOpenAI: Configured OpenAI-compatible client
+        
+    Note:
+        The http_client MUST be the shared client from startup to ensure
+        the rewrite_service_tier hook is applied to all requests.
+    """
+    return AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        http_client=http_client,
+    )

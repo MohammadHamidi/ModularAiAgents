@@ -17,7 +17,7 @@ from shared.database import SessionManager
 from shared.context_manager import ContextManager
 from shared.base_agent import AgentRequest, AgentConfig
 from agents.chat_agent import ChatAgent
-from agents.litellm_compat import rewrite_service_tier
+from agents.litellm_compat import rewrite_service_tier, create_litellm_compatible_client
 from agents.config_loader import load_agent_config, UserDataField, ConfigLoader
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -237,7 +237,9 @@ async def startup():
         raise
     
     # Create global httpx client with LiteLLM compatibility hook
-    http_client = httpx.AsyncClient(event_hooks={"response": [rewrite_service_tier]})
+    # This shared client ensures all agents use the same client with compatibility hooks
+    http_client = create_litellm_compatible_client()
+    logging.info("✅ Created shared HTTP client with LiteLLM compatibility hooks")
 
     # Base config for all agents
     base_config = {
@@ -351,8 +353,11 @@ async def startup():
         logging.info(f"Added route_to_agent tool to orchestrator before initialization")
     
     # Initialize all agents with shared http_client
+    # This ensures all agents use the same client with LiteLLM compatibility hooks
+    # and benefit from connection pooling and consistent configuration
     for key, agent in AGENTS.items():
         await agent.initialize(http_client=http_client)
+        logging.debug(f"Initialized agent '{key}' with shared http_client")
 
     logging.info(f"Initialized {len(AGENTS)} agents: {list(AGENTS.keys())}")
 
@@ -385,15 +390,12 @@ async def startup():
     # Set startup completion flag
     app.state.startup_completed = True
 
-        _agent_debug_log(
-            hypothesis_id="H1",
-            location="services/chat-service/main.py:startup",
-            message="startup completed",
-            data={"agents": list(AGENTS.keys())},
-        )
-
-    # Set startup completion flag
-    app.state.startup_completed = True
+    _agent_debug_log(
+        hypothesis_id="H1",
+        location="services/chat-service/main.py:startup",
+        message="startup completed",
+        data={"agents": list(AGENTS.keys())},
+    )
 
 @app.get("/health", tags=["Health"])
 async def health():
