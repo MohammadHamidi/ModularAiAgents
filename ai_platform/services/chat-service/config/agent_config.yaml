@@ -866,7 +866,7 @@ recent_messages_context:
 
 model_config:
   default_model: "gemini-2.5-flash-lite-preview-09-2025"
-  temperature: 0.7
+  temperature: 0.9 # بالا برای پاسخ‌های طبیعی، گرم و خودمونی
   max_turns: 12
   max_tokens: null # null = no limit
 

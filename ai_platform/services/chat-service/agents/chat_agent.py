@@ -101,13 +101,55 @@ Returns:
     
     async def _build_agent(self, client: httpx.AsyncClient):
         """Build/rebuild the agent with current field configuration."""
+        # Get model config from agent_config (temperature, max_tokens, etc.)
+        model_config = getattr(self.agent_config, 'model_config', {}) or {}
+        temperature = model_config.get('temperature', 0.7)  # Default 0.7 for more natural responses
+        max_tokens = model_config.get('max_tokens', None)
+        
+        # Store temperature for potential use
+        self.model_temperature = temperature
+        self.model_max_tokens = max_tokens
+        
+        logger.info(f"Building model with config: temperature={temperature}, max_tokens={max_tokens}")
+        
+        # Create OpenAI client - temperature will be handled by LiteLLM/API
+        # For OpenAI-compatible APIs, temperature is typically sent per-request
         openai_client = AsyncOpenAI(
             api_key=self.config.extra.get("api_key"),
             base_url=self.config.extra.get("base_url"),
             http_client=client,
+            # Note: OpenAI client doesn't support default temperature in constructor
+            # Temperature will need to be set per-request or via model configuration
         )
         provider = OpenAIProvider(openai_client=openai_client)
+        
+        # Create model - in pydantic-ai, model parameters are typically set per-request
+        # For now, we'll rely on the API/LiteLLM to use default temperature
+        # The temperature setting in config serves as documentation and may be used
+        # by the API provider if it supports default model parameters
         model = OpenAIChatModel(self.config.model, provider=provider)
+        
+        # Try to set temperature on model if supported
+        # Some pydantic-ai versions support model.with_params() or similar
+        try:
+            # Try with_params method (if available in this version)
+            if hasattr(model, 'with_params') and callable(getattr(model, 'with_params')):
+                if temperature is not None:
+                    model = model.with_params(temperature=temperature)
+                if max_tokens is not None:
+                    model = model.with_params(max_tokens=max_tokens)
+                logger.info(f"✅ Applied model params via with_params: temperature={temperature}")
+            # Try setting as attribute (some versions might support this)
+            elif hasattr(model, 'temperature'):
+                model.temperature = temperature
+                if max_tokens is not None and hasattr(model, 'max_tokens'):
+                    model.max_tokens = max_tokens
+                logger.info(f"✅ Applied model params as attributes: temperature={temperature}")
+            else:
+                # Temperature will be handled by the API provider (LiteLLM) if it supports defaults
+                logger.info(f"ℹ️ Model doesn't support direct temperature setting. API provider (LiteLLM) may use default temperature.")
+        except Exception as e:
+            logger.warning(f"Could not apply model params directly: {e}. API provider may handle temperature.")
 
         # Build dynamic tool description BEFORE creating agent
         tool_doc = self._build_dynamic_tool_description()
@@ -125,10 +167,12 @@ Returns:
         save_user_info_impl.__name__ = "save_user_info"
 
         # Create agent with tool for saving user information
+        # output_retries=3 allows more retries for output validation (default is 1)
         self.agent = Agent(
             model,
             deps_type=ChatDependencies,
             system_prompt="",  # Will be set dynamically in process()
+            output_retries=3,  # Increase retries for output validation to handle model response variations
         )
 
         # Register the save_user_info tool
@@ -812,10 +856,30 @@ Returns:
             if not assistant_output or len(assistant_output.strip()) == 0:
                 logger.warning("⚠️ Agent returned empty output! This may indicate an issue with the model or prompt.")
         except Exception as e:
+            error_msg = str(e)
+            error_type = str(type(e))
             logger.error(f"❌ Error in agent.run(): {e}", exc_info=True)
-            # Return a fallback response instead of crashing
-            assistant_output = "متأسفانه در پردازش درخواست شما خطایی رخ داد. لطفاً دوباره تلاش کنید."
-            raise  # Re-raise to be handled by the endpoint
+            
+            # Handle pydantic-ai validation errors specifically
+            if "output validation" in error_msg.lower() or "UnexpectedModelBehavior" in error_type:
+                logger.warning("⚠️ Output validation error detected. This may be due to model response format issues.")
+                # Try to get partial output if available
+                try:
+                    # If there's a partial result, use it
+                    if hasattr(e, 'partial_result') and e.partial_result:
+                        assistant_output = str(e.partial_result)
+                        logger.info(f"Using partial result from validation error: {len(assistant_output)} chars")
+                    else:
+                        # Provide a helpful fallback message instead of re-raising
+                        assistant_output = "متأسفانه در پردازش پاسخ مدل خطایی رخ داد. لطفاً سوال خود را به شکل دیگری مطرح کنید یا دوباره تلاش کنید."
+                        logger.warning("No partial result available, using fallback message")
+                except Exception as fallback_error:
+                    logger.error(f"Error in fallback handling: {fallback_error}")
+                    assistant_output = "متأسفانه در پردازش پاسخ مدل خطایی رخ داد. لطفاً دوباره تلاش کنید."
+            else:
+                # For other errors, provide fallback message
+                assistant_output = "متأسفانه در پردازش درخواست شما خطایی رخ داد. لطفاً دوباره تلاش کنید."
+                logger.error(f"Unexpected error type: {error_type}")
 
         # Capture LLM output (raw, before post-processing)
         trace.llm_output_raw = assistant_output

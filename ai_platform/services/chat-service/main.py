@@ -17,7 +17,6 @@ from shared.database import SessionManager
 from shared.context_manager import ContextManager
 from shared.base_agent import AgentRequest, AgentConfig
 from agents.chat_agent import ChatAgent
-from agents.translator_agent import TranslatorAgent
 from agents.litellm_compat import rewrite_service_tier
 from agents.config_loader import load_agent_config, UserDataField, ConfigLoader
 from pydantic import BaseModel
@@ -45,7 +44,7 @@ app = FastAPI(
     Chat service for the AI Platform that handles AI agent interactions.
     
     ## Features
-    - Multiple AI agents with different personas (default, tutor, professional, minimal, translator)
+    - Multiple AI agents with different personas (default, tutor, professional, minimal)
     - Session management with conversation history
     - Shared context across agents
     - User data persistence
@@ -312,23 +311,6 @@ async def startup():
             traceback.print_exc()
             # Skip this persona but continue with others
 
-    # Register translator (special agent, not a persona)
-    register_agent("translator", TranslatorAgent, {
-        "name": "Translator",
-        "model": default_model,
-        "max_turns": 8,
-        "temperature": 0.3,
-        "extra": {
-            **base_config,
-            "system_prompt": """You are a professional translator. Translate accurately and naturally. Preserve meaning, tone, and formatting.
-Do not add advice, suggestions, or extra content.
-
-هر پیام کاربر ممکن است با <internal_context>...</internal_context> شروع شود؛ از آن استفاده کن ولی هرگز در خروجی تکرار نکن.
-
-اگر مطمئن نیستی یا داده کافی نیست، حدس نزن. بگو «اطلاعات کافی ندارم»."""
-        }
-    })
-    
     # Register AgentRouterTool for orchestrator (must be AFTER all agents are in AGENTS dict, but BEFORE initialization)
     from tools.agent_router import AgentRouterTool
     router_tool = AgentRouterTool(AGENTS, context_manager)
