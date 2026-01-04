@@ -24,7 +24,9 @@ app = FastAPI(
     - Manages session context and user data
     
     ## API Endpoints
+    - `/chat/init` - Initialize chat session from Safiranayeha website
     - `/chat/{agent_key}` - Send messages to AI agents
+    - `/chat/{agent_key}/stream` - Stream messages to AI agents (SSE)
     - `/agents` - List available AI agents
     - `/session/{session_id}/context` - Get session context
     - `/session/{session_id}/user-data` - Get user data for a session
@@ -102,6 +104,26 @@ class ChatRequest(BaseModel):
                 "use_shared_context": True
             }
         }
+
+class ChatInitRequest(BaseModel):
+    """Request model for initializing chat from Safiranayeha website."""
+    encrypted_param: Optional[str] = None  # Optional encrypted parameter from URL
+    user_id: Optional[str] = None  # Direct user_id (alternative to encrypted_param)
+    path: Optional[str] = None  # Website path (alternative to encrypted_param)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "encrypted_param": "encrypted_base64_string_from_url"
+            }
+        }
+
+class ChatInitResponse(BaseModel):
+    """Response model for chat initialization."""
+    session_id: str
+    agent_key: str
+    user_data: Optional[Dict[str, Any]] = None
+    welcome_message: Optional[str] = None
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint"""
@@ -247,6 +269,44 @@ async def get_tool_info(tool_name: str):
     """
     try:
         response = await http_client.get(f"/tools/{tool_name}")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.post("/chat/init", tags=["Chat", "Safiranayeha"], response_model=ChatInitResponse)
+async def initialize_chat(request: ChatInitRequest):
+    """
+    Initialize chat session from Safiranayeha website.
+    
+    This endpoint handles the encrypted parameter from the Safiranayeha website,
+    decrypts it, fetches user data, determines the appropriate agent based on the path,
+    and creates a new chat session with pre-loaded user context.
+    
+    **Flow:**
+    1. Decrypt URL parameter to get UserId and Path
+    2. Login to Safiranayeha API and fetch user data
+    3. Map Path to appropriate AI agent
+    4. Create new session with user context
+    5. Return session_id and agent_key for chat interface
+    
+    **Parameters:**
+    - **encrypted_param**: AES encrypted base64 string from URL (contains UserId and Path)
+    - **user_id**: (Optional) Direct user_id if not using encrypted_param
+    - **path**: (Optional) Website path if not using encrypted_param
+    
+    **Returns:**
+    - session_id: UUID for the chat session
+    - agent_key: AI agent assigned based on path
+    - user_data: User information loaded from Safiranayeha
+    - welcome_message: (Optional) Initial greeting from the agent
+    """
+    try:
+        # Exclude None values to avoid validation errors in chat-service
+        request_dict = request.dict(exclude_none=True)
+        response = await http_client.post("/chat/init", json=request_dict)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:

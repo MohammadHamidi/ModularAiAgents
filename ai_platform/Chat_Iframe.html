@@ -332,14 +332,19 @@
             <!-- Header -->
             <div class="flex items-center justify-between px-4 sm:px-5 md:px-6 py-3 sm:py-4 md:py-5 bg-white border-b border-gray-200">
                 <div class="flex items-center gap-2 sm:gap-3">
-                    <div class="back-btn flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
-                        <img src="/ui/icon.png" alt="Logo" class="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
-                    </div>
+                    <button id="newSessionBtn"
+                        class="back-btn flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-all duration-200">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 4v16m8-8H4" />
+                        </svg>
+                    </button>
                     <div>
                         <h1 class="text-base sm:text-lg md:text-xl font-bold text-gray-800">هوش مصنوعی سفیران آیه ها</h1>
                         <p class="text-[11px] sm:text-xs text-gray-500">دستیار هوشمند شما</p>
+                    </div>
                 </div>
-            </div>
             </div>
 
             <!-- Chat messages -->
@@ -360,7 +365,7 @@
                         </svg>
                     </button>
                 </div>
-                        </div>
+            </div>
         </div>
     </div>
 
@@ -368,6 +373,7 @@
         const chatContainer = document.getElementById('chatContainer');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
+        const newSessionBtn = document.getElementById('newSessionBtn');
 
         // Auto-resize textarea
         function autoResizeTextarea() {
@@ -398,10 +404,9 @@
         // AI Client
         class AIClient {
             constructor(baseUrl) {
-                    this.baseUrl = baseUrl;
+                this.baseUrl = baseUrl;
                 this.sessionId = null;
                 this.userData = null;
-                this.agentKey = 'orchestrator'; // Default agent
             }
 
             setSessionId(sessionId) {
@@ -412,23 +417,15 @@
                 this.userData = userData;
             }
 
-            setAgentKey(agentKey) {
-                this.agentKey = agentKey;
-            }
-
             newSession() {
                 this.sessionId = null;
             }
 
             async sendMessage(message, streaming = true) {
-                const agentKey = this.agentKey || 'orchestrator';
-                const endpoint = streaming 
-                    ? `${this.baseUrl}/chat/${agentKey}/stream` 
-                    : `${this.baseUrl}/chat/${agentKey}`;
+                const endpoint = streaming ? `${this.baseUrl}/stream` : this.baseUrl;
                 const payload = {
-                        message: message,
+                    message: message,
                     session_id: this.sessionId || undefined,
-                        use_shared_context: true,
                     user_data: this.userData || undefined
                 };
 
@@ -441,7 +438,7 @@
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 if (streaming) {
                     return new StreamingResponse(response);
                 }
@@ -483,165 +480,26 @@
                                 }
                                 if (parsed.chunk) {
                                     yield parsed.chunk;
-                                            }
-                                        } catch (e) {
-                                console.error('JSON parse error:', e);
-                                        }
-                                    }
                                 }
-                        } finally {
-                    this.reader.releaseLock();
+                            } catch (e) {
+                                console.error('JSON parse error:', e);
                             }
                         }
+                    }
+                } finally {
+                    this.reader.releaseLock();
+                }
+            }
 
             async getFullResponse() {
-                        return {
+                return {
                     session_id: this.sessionId,
                     output: ''
                 };
             }
         }
 
-        // Auto-detect base URL: if running on same domain, use relative path; otherwise use provided or default
-        let baseUrl = null;
-        const currentPath = window.location.pathname;
-        if (currentPath.startsWith('/ui')) {
-            // We're on /ui, so API is at root (gateway will forward)
-            baseUrl = window.location.origin;
-        } else {
-            // Fallback for local development
-            baseUrl = 'http://localhost:8000';
-        }
-        
-        // Extract encrypted parameter from URL (for Safiranayeha integration)
-        function getEncryptedParamFromURL() {
-            // Method 1: Query parameter (e.g., /ui?encrypted_param=...)
-            const urlParams = new URLSearchParams(window.location.search);
-            let encryptedParam = urlParams.get('encrypted_param') || urlParams.get('param');
-            if (encryptedParam) return encryptedParam;
-            
-            // Method 2: Path parameter (e.g., /ui/{encrypted_param})
-            const path = window.location.pathname;
-            const pathParts = path.split('/').filter(p => p);
-            
-            // If we're on /ui, check if there's a parameter after it
-            if (pathParts[0] === 'ui' && pathParts.length > 1) {
-                return pathParts[1];
-            }
-            
-            // If not on /ui, check if first path part is the encrypted param
-            if (pathParts.length > 0 && pathParts[0] !== 'ui') {
-                // Could be direct path like /{encrypted_param}
-                return pathParts[0];
-            }
-            
-            // Method 3: Hash parameter (e.g., /ui#encrypted_param)
-            const hash = window.location.hash.substring(1);
-            if (hash && hash.length > 20) { // Encrypted params are typically long
-                return hash;
-            }
-            
-            return null;
-        }
-        
-        // Initialize with base URL (agent will be set dynamically)
-        const aiClient = new AIClient(baseUrl);
-
-        // Initialize chat from Safiranayeha encrypted parameter
-        async function initializeChatFromSafiranayeha() {
-            const encryptedParam = getEncryptedParamFromURL();
-            
-            if (!encryptedParam) {
-                // No encrypted parameter - use default behavior
-                console.log('No Safiranayeha parameter found, using default agent');
-                return false; // Indicates no initialization happened
-            }
-            
-            try {
-                // Show loading state
-                chatContainer.innerHTML = `
-                    <div class="flex items-center justify-center h-full">
-                        <div class="text-center">
-                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4"></div>
-                            <p class="text-gray-600 text-sm">در حال اتصال به سیستم...</p>
-                        </div>
-                    </div>
-                `;
-                
-                // Disable input during initialization
-                messageInput.disabled = true;
-                sendButton.disabled = true;
-                
-                // Call init endpoint
-                const response = await fetch(`${baseUrl}/chat/init`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        encrypted_param: encryptedParam
-                    })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ detail: 'خطا در برقراری ارتباط' }));
-                    throw new Error(errorData.detail || `HTTP ${response.status}`);
-                }
-                
-                const data = await response.json();
-                
-                // Store session info
-                aiClient.setSessionId(data.session_id);
-                aiClient.setUserData(data.user_data);
-                aiClient.setAgentKey(data.agent_key);
-                
-                // Clear loading and display welcome message
-                chatContainer.innerHTML = '';
-                
-                if (data.welcome_message) {
-                    const welcomeDiv = document.createElement('div');
-                    welcomeDiv.className = 'flex justify-end mb-4 message-enter';
-                    welcomeDiv.innerHTML = `
-                        <div class="markdown-content bg-white px-4 sm:px-5 py-3 sm:py-4 rounded-2xl shadow-sm max-w-[85%] sm:max-w-[75%] text-[13px] sm:text-sm">
-                            ${marked.parse(data.welcome_message)}
-                        </div>
-                    `;
-                    chatContainer.appendChild(welcomeDiv);
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                }
-                
-                // Enable input
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                
-                console.log('Chat initialized successfully:', {
-                    session_id: data.session_id,
-                    agent_key: data.agent_key
-                });
-                
-                return true; // Indicates successful initialization
-                
-            } catch (error) {
-                console.error('Initialization error:', error);
-                
-                // Show error message but allow fallback to default
-                chatContainer.innerHTML = `
-                    <div class="flex justify-end mb-4">
-                        <div class="bg-red-50 border border-red-200 text-red-700 px-4 sm:px-5 py-3 sm:py-4 rounded-2xl max-w-[85%] sm:max-w-[75%] text-[13px] sm:text-sm">
-                            <p class="font-semibold mb-1">خطا در اتصال</p>
-                            <p>${escapeHtml(error.message)}</p>
-                            <p class="mt-2 text-xs text-red-600">استفاده از حالت پیش‌فرض...</p>
-                        </div>
-                    </div>
-                `;
-                
-                // Enable input for fallback
-                messageInput.disabled = false;
-                sendButton.disabled = false;
-                
-                return false; // Indicates initialization failed
-            }
-        }
+        const aiClient = new AIClient('https://hr-dify.liara.run/v1/chat-messages');
 
         // Typing messages
         const typingMessages = [
@@ -661,13 +519,13 @@
             typingDiv.id = 'typingIndicator';
             typingDiv.className = 'flex items-center gap-2 mb-4 message-enter';
             typingDiv.innerHTML = `
-          <div class="typing-indicator">
-            <span></span>
-            <span></span>
-            <span></span>
+                <div class="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
                     <span class="typing-text text-[13px] sm:text-[12px] text-gray-600 mr-2">${typingMessages[0]}</span>
-        </div>
-      `;
+                </div>
+            `;
             chatContainer.appendChild(typingDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
@@ -676,7 +534,7 @@
 
             typingInterval = setInterval(() => {
                 typingText.classList.add('fade');
-                    setTimeout(() => {
+                setTimeout(() => {
                     currentTypingIndex = (currentTypingIndex + 1) % typingMessages.length;
                     typingText.textContent = typingMessages[currentTypingIndex];
                     typingText.classList.remove('fade');
@@ -699,14 +557,13 @@
             chatContainer.innerHTML = '';
         }
 
-        // New session functionality disabled for now
-        // newSessionBtn.addEventListener('click', () => {
-        //     aiClient.newSession();
-        //     renderWelcome();
-        //     messageInput.value = '';
-        //     messageInput.style.height = 'auto';
-        //     updateSendButton();
-        // });
+        newSessionBtn.addEventListener('click', () => {
+            aiClient.newSession();
+            renderWelcome();
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            updateSendButton();
+        });
 
         async function sendMessage() {
             const message = messageInput.value.trim();
@@ -740,7 +597,7 @@
                 const streamResponse = await aiClient.sendMessage(message, true);
                 let fullText = '';
                 let hasReceivedData = false;
-                
+
                 try {
                     for await (const chunk of streamResponse.chunks()) {
                         if (!hasReceivedData) {
@@ -849,18 +706,9 @@
             return div.innerHTML;
         }
 
-        // Initialize chat on page load
-        (async () => {
-            // Try to initialize from Safiranayeha parameter
-            const initialized = await initializeChatFromSafiranayeha();
-            
-            // If no initialization happened, show default welcome
-            if (!initialized) {
-                renderWelcome();
-            }
-            
-            messageInput.focus();
-        })();
+        // Initial render
+        renderWelcome();
+        messageInput.focus();
     </script>
 </body>
 
