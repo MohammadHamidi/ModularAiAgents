@@ -114,31 +114,59 @@ class SafiranayehaClient:
 
         # Build login URL
         url = f"{self.BASE_URL}{self.LOGIN_ENDPOINT}"
-        params = {
+        credentials = {
             "username": self.USERNAME,
             "password": self.PASSWORD
         }
 
-        try:
-            logger.info(f"Logging in to Safiranayeha API: {url}")
-            response = await client.post(url, params=params)
-            response.raise_for_status()
+        # Try multiple approaches to handle different API configurations
+        login_methods = [
+            ("GET with query params", lambda: client.get(url, params=credentials)),
+            ("POST with JSON body", lambda: client.post(url, json=credentials)),
+            ("POST with form data", lambda: client.post(url, data=credentials)),
+            ("POST with query params", lambda: client.post(url, params=credentials)),
+        ]
 
-            # Token is returned directly as string
-            token = response.text.strip().strip('"')  # Remove quotes if present
+        last_error = None
+        for method_name, method_func in login_methods:
+            try:
+                logger.info(f"Attempting login with {method_name}: {url}")
+                response = await method_func()
 
-            # Cache token
-            self._token = token
-            self._token_expiry = datetime.now() + self._token_ttl
+                # Check if successful
+                if response.status_code == 200:
+                    # Token is returned directly as string
+                    token = response.text.strip().strip('"')  # Remove quotes if present
 
-            logger.info("Successfully logged in to Safiranayeha API")
-            logger.debug(f"Token: {token[:20]}...")
+                    # Cache token
+                    self._token = token
+                    self._token_expiry = datetime.now() + self._token_ttl
 
-            return token
+                    logger.info(f"✅ Successfully logged in to Safiranayeha API using {method_name}")
+                    logger.debug(f"Token: {token[:20]}...")
 
-        except httpx.HTTPError as e:
-            logger.error(f"Safiranayeha login failed: {e}")
-            raise
+                    return token
+                else:
+                    logger.warning(f"Login attempt with {method_name} returned status {response.status_code}")
+                    last_error = f"Status {response.status_code}: {response.text}"
+
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"Login attempt with {method_name} failed with status error: {e.response.status_code}")
+                last_error = e
+                continue
+            except httpx.HTTPError as e:
+                logger.warning(f"Login attempt with {method_name} failed with HTTP error: {e}")
+                last_error = e
+                continue
+            except Exception as e:
+                logger.warning(f"Login attempt with {method_name} failed with unexpected error: {e}")
+                last_error = e
+                continue
+
+        # All methods failed
+        error_msg = f"All login methods failed. Last error: {last_error}"
+        logger.error(error_msg)
+        raise httpx.HTTPError(error_msg)
 
     async def get_user_data(self, user_id: str) -> Dict[str, Any]:
         """
