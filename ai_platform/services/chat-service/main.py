@@ -33,6 +33,11 @@ from tools.konesh_query import KoneshQueryTool
 # Import monitoring
 from monitoring import trace_collector
 
+# Import Safiranayeha integration
+from integrations.safiranayeha_client import SafiranayehaClient, set_safiranayeha_client
+from integrations.path_router import PathRouter, get_path_router, set_path_router
+from utils.crypto import decrypt_safiranayeha_param
+
 load_dotenv()
 
 # Initialize logging
@@ -114,6 +119,25 @@ class FieldResponse(BaseModel):
     validation: dict
 
 
+# =============================================================================
+# Pydantic Models for Safiranayeha Integration
+# =============================================================================
+
+class ChatInitRequest(BaseModel):
+    """Request model for initializing chat from Safiranayeha website."""
+    encrypted_param: str = None  # Optional encrypted parameter from URL
+    user_id: Optional[str] = None  # Direct user_id (alternative to encrypted_param)
+    path: Optional[str] = None  # Website path (alternative to encrypted_param)
+
+
+class ChatInitResponse(BaseModel):
+    """Response model for chat initialization."""
+    session_id: str
+    agent_key: str
+    user_data: Optional[Dict[str, Any]] = None
+    welcome_message: Optional[str] = None
+
+
 # #region agent log helper
 DEBUG_LOG_PATH = os.getenv(
     "AGENT_DEBUG_LOG_PATH",
@@ -149,6 +173,8 @@ session_manager = None
 context_manager = None
 http_client: httpx.AsyncClient | None = None
 agent_full_config = None  # Default agent config (backwards compatible)
+safiranayeha_client: SafiranayehaClient | None = None  # Safiranayeha API client
+path_router: PathRouter | None = None  # Path-to-agent router
 
 def register_agent(key: str, agent_class, config: dict, full_config=None):
     """Register agent with configuration"""
@@ -163,7 +189,7 @@ def register_agent(key: str, agent_class, config: dict, full_config=None):
 
 @app.on_event("startup")
 async def startup():
-    global session_manager, context_manager, http_client, agent_full_config
+    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router
 
     logging.info("Starting chat service initialization...")
 
@@ -327,14 +353,37 @@ async def startup():
     # Initialize all agents with shared http_client
     for key, agent in AGENTS.items():
         await agent.initialize(http_client=http_client)
-    
-        logging.info(f"Initialized {len(AGENTS)} agents: {list(AGENTS.keys())}")
 
-        # Debug log: startup completed and agents registered
-        logging.info(f"Chat service startup completed successfully! Loaded {len(AGENTS)} agents: {list(AGENTS.keys())}")
+    logging.info(f"Initialized {len(AGENTS)} agents: {list(AGENTS.keys())}")
 
-        # Set startup completion flag
-        app.state.startup_completed = True
+    # ==========================================================================
+    # Initialize Safiranayeha Integration
+    # ==========================================================================
+    logging.info("Initializing Safiranayeha integration...")
+
+    # Initialize Safiranayeha API client
+    safiranayeha_client = SafiranayehaClient(http_client=http_client)
+    set_safiranayeha_client(safiranayeha_client)
+    logging.info("Safiranayeha API client initialized")
+
+    # Test login to verify credentials
+    try:
+        await safiranayeha_client.login()
+        logging.info("✅ Safiranayeha API login successful")
+    except Exception as e:
+        logging.error(f"❌ Safiranayeha API login failed: {e}")
+        logging.error("Chat service will continue but Safiranayeha integration may not work")
+
+    # Initialize path router
+    path_router = PathRouter()
+    set_path_router(path_router)
+    logging.info(f"Path router initialized with {len(path_router.mappings)} mappings")
+
+    # Debug log: startup completed and agents registered
+    logging.info(f"Chat service startup completed successfully! Loaded {len(AGENTS)} agents: {list(AGENTS.keys())}")
+
+    # Set startup completion flag
+    app.state.startup_completed = True
 
         _agent_debug_log(
             hypothesis_id="H1",
@@ -526,6 +575,188 @@ def normalize_user_data(user_data: Dict[str, Any]) -> Dict[str, Any]:
             normalized[normalized_key] = {"value": value}
     
     return normalized
+
+
+# =============================================================================
+# Safiranayeha Integration Endpoints
+# =============================================================================
+
+@app.post("/chat/init", tags=["Chat", "Safiranayeha"])
+async def initialize_chat(request: ChatInitRequest):
+    """
+    Initialize chat session from Safiranayeha website.
+
+    This endpoint handles the encrypted parameter from the Safiranayeha website,
+    decrypts it, fetches user data, determines the appropriate agent based on the path,
+    and creates a new chat session with pre-loaded user context.
+
+    **Flow:**
+    1. Decrypt URL parameter to get UserId and Path
+    2. Login to Safiranayeha API and fetch user data
+    3. Map Path to appropriate AI agent
+    4. Create new session with user context
+    5. Return session_id and agent_key for chat interface
+
+    **Parameters:**
+    - **encrypted_param**: AES encrypted base64 string from URL (contains UserId and Path)
+    - **user_id**: (Optional) Direct user_id if not using encrypted_param
+    - **path**: (Optional) Website path if not using encrypted_param
+
+    **Returns:**
+    - session_id: UUID for the chat session
+    - agent_key: AI agent assigned based on path
+    - user_data: User information loaded from Safiranayeha
+    - welcome_message: (Optional) Initial greeting from the agent
+
+    **Example:**
+    ```
+    POST /chat/init
+    {
+        "encrypted_param": "encrypted_base64_string_from_url"
+    }
+    ```
+
+    **Response:**
+    ```json
+    {
+        "session_id": "uuid-here",
+        "agent_key": "action_expert",
+        "user_data": {...},
+        "welcome_message": "سلام! چطور می‌تونم کمکت کنم؟"
+    }
+    ```
+    """
+    global safiranayeha_client, path_router
+
+    try:
+        # Step 1: Extract UserId and Path
+        if request.encrypted_param:
+            # Decrypt parameter
+            logging.info("Decrypting Safiranayeha parameter...")
+            try:
+                decrypted_data = decrypt_safiranayeha_param(request.encrypted_param)
+                user_id = decrypted_data.get('UserId')
+                path = decrypted_data.get('Path', '/')
+                logging.info(f"Decrypted: UserId={user_id}, Path={path}")
+            except Exception as e:
+                logging.error(f"Failed to decrypt parameter: {e}")
+                raise HTTPException(400, f"Invalid encrypted parameter: {str(e)}")
+        else:
+            # Use direct parameters
+            user_id = request.user_id
+            path = request.path or '/'
+            if not user_id:
+                raise HTTPException(400, "Either encrypted_param or user_id must be provided")
+
+        # Step 2: Fetch user data from Safiranayeha API
+        logging.info(f"Fetching user data for user_id={user_id}...")
+        try:
+            user_data_raw = await safiranayeha_client.get_user_data(user_id)
+            logging.info(f"Fetched user data with {len(user_data_raw)} fields")
+        except Exception as e:
+            logging.error(f"Failed to fetch user data: {e}")
+            # Continue with empty user data
+            user_data_raw = {}
+            logging.warning("Continuing with empty user data")
+
+        # Step 3: Determine agent based on path
+        agent_key = path_router.get_agent_for_path(path)
+        logging.info(f"Mapped path '{path}' to agent '{agent_key}'")
+
+        # Verify agent exists
+        if agent_key not in AGENTS:
+            logging.warning(f"Agent '{agent_key}' not found, falling back to orchestrator")
+            agent_key = "orchestrator"
+
+        # Step 4: Create new session
+        session_id = uuid.uuid4()
+        logging.info(f"Created new session: {session_id}")
+
+        # Step 5: Normalize and save user data to context
+        if user_data_raw:
+            normalized_user_data = safiranayeha_client.normalize_user_data_for_context(user_data_raw)
+            logging.info(f"Normalized {len(normalized_user_data)} user data fields")
+
+            # Save to context manager
+            try:
+                await context_manager.merge_context(
+                    session_id,
+                    normalized_user_data,
+                    agent_type=agent_key
+                )
+                logging.info(f"Saved user context for session {session_id}")
+            except Exception as e:
+                logging.error(f"Failed to save user context: {e}")
+                # Continue anyway
+
+        # Step 6: Generate welcome message (optional)
+        welcome_message = None
+        # You can customize this based on agent_key
+        if agent_key == "guest_faq":
+            welcome_message = "سلام! خوش اومدی به سفیران آیه‌ها 🌟 چطور می‌تونم کمکت کنم؟"
+        elif agent_key == "action_expert":
+            welcome_message = "سلام! برای تولید محتوای کنش‌ها آماده‌ام. چه کنشی مد نظرته؟"
+        elif agent_key == "journey_register":
+            welcome_message = "سلام! بیا مسیر سفیران رو با هم طی کنیم. از کجا شروع کنیم؟"
+        elif agent_key == "rewards_invite":
+            welcome_message = "سلام! برای اطلاعات امتیازات و دعوت‌ها اینجام. چه چیزی می‌خوای بدونی؟"
+        else:
+            welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
+
+        # Step 7: Return response
+        return ChatInitResponse(
+            session_id=str(session_id),
+            agent_key=agent_key,
+            user_data=user_data_raw if user_data_raw else None,
+            welcome_message=welcome_message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Unexpected error in chat initialization: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to initialize chat: {str(e)}")
+
+
+@app.get("/safiranayeha/path-mappings", tags=["Safiranayeha"])
+async def get_path_mappings():
+    """
+    Get all path-to-agent mappings.
+
+    Returns the configuration of which website paths map to which AI agents.
+    Useful for debugging and understanding the routing logic.
+
+    **Returns:**
+    - default_agent: Default agent when no path matches
+    - mappings: List of path patterns and their assigned agents
+    """
+    global path_router
+
+    return {
+        "default_agent": path_router.default_agent,
+        "mappings": path_router.get_all_mappings(),
+        "total_mappings": len(path_router.mappings)
+    }
+
+
+@app.post("/safiranayeha/test-decrypt", tags=["Safiranayeha"])
+async def test_decrypt(encrypted_param: str):
+    """
+    Test endpoint to decrypt Safiranayeha URL parameter.
+
+    **For testing and debugging only.**
+
+    **Parameters:**
+    - encrypted_param: AES encrypted base64 string
+
+    **Returns:**
+    - decrypted: Decrypted JSON data
+    """
+    try:
+        decrypted = decrypt_safiranayeha_param(encrypted_param)
+        return {"success": True, "decrypted": decrypted}
+    except Exception as e:
+        raise HTTPException(400, f"Decryption failed: {str(e)}")
 
 
 @app.post("/chat/{agent_key}", tags=["Chat"])
