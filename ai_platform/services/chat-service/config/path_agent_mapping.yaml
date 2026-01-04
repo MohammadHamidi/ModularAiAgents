@@ -1,0 +1,102 @@
+# Path to Agent Mapping Configuration
+# Maps website paths to appropriate AI agents
+
+# This configuration determines which AI agent should handle the conversation
+# based on where the user is coming from on the Safiranayeha website.
+
+version: "1.0"
+description: "Maps Safiranayeha website paths to AI agents"
+
+# Default agent to use if path doesn't match any pattern
+default_agent: "orchestrator"
+
+# Path mappings
+# Each entry maps a path pattern to an agent key
+# Patterns support:
+#   - Exact match: "/konesh/list"
+#   - Wildcard: "/konesh/*"
+#   - Prefix match: "/profile*"
+
+mappings:
+  # Guest and FAQ paths
+  - path: "/"
+    agent: "guest_faq"
+    description: "Homepage - newcomer guide"
+
+  - path: "/about"
+    agent: "guest_faq"
+    description: "About page - general information"
+
+  - path: "/faq"
+    agent: "guest_faq"
+    description: "FAQ page - common questions"
+
+  - path: "/help"
+    agent: "guest_faq"
+    description: "Help center"
+
+  # Action/Konesh related paths
+  - path: "/konesh/*"
+    agent: "action_expert"
+    description: "Action/Konesh pages - content creation"
+
+  - path: "/actions/*"
+    agent: "action_expert"
+    description: "Actions pages - content creation"
+
+  - path: "/محفل/*"
+    agent: "action_expert"
+    description: "Mahfel pages - content creation"
+
+  - path: "/content/create"
+    agent: "action_expert"
+    description: "Content creation page"
+
+  # Journey and registration paths
+  - path: "/register"
+    agent: "journey_register"
+    description: "Registration page"
+
+  - path: "/profile/*"
+    agent: "journey_register"
+    description: "Profile pages - completion guide"
+
+  - path: "/onboarding/*"
+    agent: "journey_register"
+    description: "Onboarding flow"
+
+  - path: "/journey/*"
+    agent: "journey_register"
+    description: "User journey pages"
+
+  # Rewards and invitation paths
+  - path: "/rewards/*"
+    agent: "rewards_invite"
+    description: "Rewards pages"
+
+  - path: "/points/*"
+    agent: "rewards_invite"
+    description: "Points system pages"
+
+  - path: "/invite/*"
+    agent: "rewards_invite"
+    description: "Invitation pages"
+
+  - path: "/leaderboard/*"
+    agent: "rewards_invite"
+    description: "Leaderboard pages"
+
+  - path: "/achievements/*"
+    agent: "rewards_invite"
+    description: "Achievements pages"
+
+# Pattern matching rules:
+# 1. Exact matches are tried first
+# 2. Then wildcard matches (longest prefix first)
+# 3. Finally, default agent is used
+
+# Examples:
+#   /konesh/list              → action_expert
+#   /profile/complete         → journey_register
+#   /rewards/history          → rewards_invite
+#   /unknown-page             → orchestrator (default)
