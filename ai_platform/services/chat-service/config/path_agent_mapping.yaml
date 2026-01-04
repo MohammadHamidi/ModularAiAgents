@@ -8,7 +8,7 @@ version: "1.0"
 description: "Maps Safiranayeha website paths to AI agents"
 
 # Default agent to use if path doesn't match any pattern
-default_agent: "orchestrator"
+default_agent: "guest_faq"
 
 # Path mappings
 # Each entry maps a path pattern to an agent key
@@ -99,4 +99,4 @@ mappings:
 #   /konesh/list              → action_expert
 #   /profile/complete         → journey_register
 #   /rewards/history          → rewards_invite
-#   /unknown-page             → orchestrator (default)
+#   /unknown-page             → guest_faq (default)

@@ -284,7 +284,7 @@ async def startup():
         "orchestrator": ["route_to_agent"],  # Orchestrator routing tool
         "guest_faq": ["knowledge_base_query"],  # FAQ agent - minimal tools
         "action_expert": ["query_konesh", "knowledge_base_query"],  # Action expert tools
-        "journey_register": ["query_konesh"],  # Journey agent - basic tools for verification
+        "journey_register": ["query_konesh", "knowledge_base_query"],  # Journey agent - needs KB for guidance
         "rewards_invite": ["knowledge_base_query"],  # Rewards agent - basic tools
     }
     
@@ -659,8 +659,8 @@ async def initialize_chat(request: ChatInitRequest):
 
         # Verify agent exists
         if agent_key not in AGENTS:
-            logging.warning(f"Agent '{agent_key}' not found, falling back to orchestrator")
-            agent_key = "orchestrator"
+            logging.warning(f"Agent '{agent_key}' not found, falling back to guest_faq")
+            agent_key = "guest_faq"
 
         # Step 4: Create new session
         session_id = uuid.uuid4()
@@ -761,48 +761,17 @@ async def chat(agent_key: str, request: AgentRequest):
     Processes the user's message through the specified AI agent and returns a response.
     Supports session management, user data persistence, and shared context across agents.
     
-    - **agent_key**: The identifier of the agent (e.g., 'default', 'tutor', 'professional', 'orchestrator')
+    - **agent_key**: The identifier of the agent (e.g., 'guest_faq', 'action_expert', 'journey_register')
     - **request**: Contains message, optional session_id, user_data, and use_shared_context flag
     
     Routing Logic:
-    - If agent_key is 'orchestrator', request goes directly to orchestrator
-    - If agent_key is any other agent, request first goes to orchestrator for intelligent routing
-    - Orchestrator will route to the requested agent or choose a better one based on the message content
+    - Direct routing to the specified agent
+    - No orchestrator involvement (path-based routing handled at initialization)
     """
-    # Check if orchestrator is available
-    if "orchestrator" not in AGENTS:
-        # Fallback: if orchestrator not available, use direct routing
-        if agent_key not in AGENTS:
-            raise HTTPException(404, f"Agent '{agent_key}' not found")
-        agent = AGENTS[agent_key]
-    else:
-        # Always route through orchestrator first (unless explicitly requesting orchestrator)
-        if agent_key == "orchestrator":
-            # Direct access to orchestrator
-            agent = AGENTS["orchestrator"]
-        else:
-            # Route through orchestrator, but pass the requested agent_key as hint
-            # The orchestrator will decide whether to use the requested agent or route to a better one
-            orchestrator_agent = AGENTS["orchestrator"]
-            
-            # Enhance message with requested agent hint for orchestrator
-            # Format: Add hint at the beginning of message (orchestrator will see this)
-            if agent_key in AGENTS:
-                # Add hint in a way orchestrator can understand
-                # We'll add it to the message as a prefix that orchestrator can parse
-                hint_prefix = f"[REQUESTED_AGENT: {agent_key}] "
-                enhanced_message = hint_prefix + request.message
-                # Create a new request with enhanced message
-                from shared.base_agent import AgentRequest
-                request = AgentRequest(
-                    message=enhanced_message,
-                    session_id=request.session_id,
-                    user_data=request.user_data,
-                    use_shared_context=request.use_shared_context
-                )
-            
-            # Use orchestrator for routing
-            agent = orchestrator_agent
+    # Direct routing to specified agent
+    if agent_key not in AGENTS:
+        raise HTTPException(404, f"Agent '{agent_key}' not found")
+    agent = AGENTS[agent_key]
     
     # Handle session
     if request.session_id:
@@ -1423,7 +1392,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     """
     Stream a message to an AI agent (Server-Sent Events).
     
-    All requests are routed through orchestrator for intelligent routing.
+    Direct routing to the specified agent.
     Returns streaming response as Server-Sent Events (SSE).
     """
     import asyncio
@@ -1431,27 +1400,10 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     logging.info(f"Streaming request received for agent_key: {agent_key}, session_id: {request.session_id}")
     logging.info(f"Available agents: {list(AGENTS.keys())}")
     
-    # Use the same routing logic as regular chat endpoint
-    if "orchestrator" not in AGENTS:
-        if agent_key not in AGENTS:
-            raise HTTPException(404, f"Agent '{agent_key}' not found")
-        agent = AGENTS[agent_key]
-    else:
-        if agent_key == "orchestrator":
-            agent = AGENTS["orchestrator"]
-        else:
-            orchestrator_agent = AGENTS["orchestrator"]
-            if agent_key in AGENTS:
-                hint_prefix = f"[REQUESTED_AGENT: {agent_key}] "
-                enhanced_message = hint_prefix + request.message
-                from shared.base_agent import AgentRequest
-                request = AgentRequest(
-                    message=enhanced_message,
-                    session_id=request.session_id,
-                    user_data=request.user_data,
-                    use_shared_context=request.use_shared_context
-                )
-            agent = orchestrator_agent
+    # Direct routing to specified agent
+    if agent_key not in AGENTS:
+        raise HTTPException(404, f"Agent '{agent_key}' not found")
+    agent = AGENTS[agent_key]
     
     # Handle session
     if request.session_id:
