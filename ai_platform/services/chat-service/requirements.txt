@@ -10,3 +10,8 @@ pydantic>=2.0.0
 pycryptodome>=3.19.0  # For AES encryption/decryption
 pyyaml>=6.0.0  # For YAML configuration files
 
+# LangChain for chain-based executor
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+

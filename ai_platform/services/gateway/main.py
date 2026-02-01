@@ -78,6 +78,7 @@ def find_static_file(filename: str) -> Path:
 
 CHAT_HTML_PATH = find_static_file("Chat.html")
 ICON_PATH = find_static_file("Icon.png")
+FAVICON_PATH = find_static_file("favicon.ico")
 MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 
 
@@ -154,6 +155,13 @@ async def serve_chat_ui():
         )
     else:
         raise HTTPException(status_code=404, detail="Chat.html not found")
+
+@app.get("/favicon.ico", tags=["UI"])
+async def serve_favicon():
+    """Serve the favicon (browser tab icon)."""
+    if FAVICON_PATH.exists():
+        return FileResponse(FAVICON_PATH, media_type="image/x-icon")
+    raise HTTPException(status_code=404, detail="Favicon not found")
 
 @app.get("/ui/icon.png", tags=["UI"])
 async def serve_icon():

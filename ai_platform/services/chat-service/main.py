@@ -175,6 +175,8 @@ http_client: httpx.AsyncClient | None = None
 agent_full_config = None  # Default agent config (backwards compatible)
 safiranayeha_client: SafiranayehaClient | None = None  # Safiranayeha API client
 path_router: PathRouter | None = None  # Path-to-agent router
+chain_executor = None  # LangChain chain-based executor (when EXECUTOR_MODE=langchain_chain)
+EXECUTOR_MODE = os.getenv("EXECUTOR_MODE", "pydantic_ai")  # pydantic_ai | langchain_chain
 
 def register_agent(key: str, agent_class, config: dict, full_config=None):
     """Register agent with configuration"""
@@ -189,7 +191,7 @@ def register_agent(key: str, agent_class, config: dict, full_config=None):
 
 @app.on_event("startup")
 async def startup():
-    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router
+    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor
 
     logging.info("Starting chat service initialization...")
 
@@ -376,6 +378,21 @@ async def startup():
     set_path_router(path_router)
     logging.info(f"Path router initialized with {len(path_router.mappings)} mappings")
 
+    # Initialize chain executor when EXECUTOR_MODE=langchain_chain
+    if EXECUTOR_MODE == "langchain_chain":
+        from chains.chain_executor import ChainExecutor
+        kb_tool = ToolRegistry.get_tool("knowledge_base_query")
+        konesh_tool = ToolRegistry.get_tool("query_konesh")
+        if kb_tool and AGENT_CONFIGS:
+            chain_executor = ChainExecutor(
+                agent_configs=AGENT_CONFIGS,
+                kb_tool=kb_tool,
+                konesh_tool=konesh_tool,
+            )
+            logging.info("✅ Chain executor initialized (EXECUTOR_MODE=langchain_chain)")
+        else:
+            logging.warning("Chain executor not initialized: missing kb_tool or AGENT_CONFIGS")
+
     # Debug log: startup completed and agents registered
     logging.info(f"Chat service startup completed successfully! Loaded {len(AGENTS)} agents: {list(AGENTS.keys())}")
 
@@ -405,6 +422,8 @@ async def health():
         "service": "chat",
         "agents": agents_list,
         "agent_count": len(agents_list),
+        "executor_mode": EXECUTOR_MODE,
+        "chain_executor_ready": chain_executor is not None if EXECUTOR_MODE == "langchain_chain" else None,
         "message": "Service is running and ready to accept requests"
     }
 
@@ -768,10 +787,18 @@ async def chat(agent_key: str, request: AgentRequest):
     - Direct routing to the specified agent
     - No orchestrator involvement (path-based routing handled at initialization)
     """
-    # Direct routing to specified agent
-    if agent_key not in AGENTS:
-        raise HTTPException(404, f"Agent '{agent_key}' not found")
-    agent = AGENTS[agent_key]
+    # Resolve executor: chain-based or Pydantic AI
+    use_chain = (
+        EXECUTOR_MODE == "langchain_chain"
+        and chain_executor is not None
+        and agent_key in AGENT_CONFIGS
+    )
+    if use_chain:
+        executor = chain_executor
+    else:
+        if agent_key not in AGENTS:
+            raise HTTPException(404, f"Agent '{agent_key}' not found")
+        executor = AGENTS[agent_key]
     
     # Handle session
     if request.session_id:
@@ -839,9 +866,9 @@ async def chat(agent_key: str, request: AgentRequest):
             normalized_user_data = normalize_user_data(request.user_data)
             shared_context.update(normalized_user_data)
 
-    # Process with agent (history + structured shared context)
+    # Process with executor (history + structured shared context)
     request.session_id = str(sid)
-    response = await agent.process(request, history, shared_context, agent_key=agent_key)
+    response = await executor.process(request, history, shared_context, agent_key=agent_key)
 
     # Debug log: after agent processing, before persistence
     _agent_debug_log(
@@ -1400,10 +1427,18 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     logging.info(f"Streaming request received for agent_key: {agent_key}, session_id: {request.session_id}")
     logging.info(f"Available agents: {list(AGENTS.keys())}")
     
-    # Direct routing to specified agent
-    if agent_key not in AGENTS:
-        raise HTTPException(404, f"Agent '{agent_key}' not found")
-    agent = AGENTS[agent_key]
+    # Resolve executor: chain-based or Pydantic AI
+    use_chain = (
+        EXECUTOR_MODE == "langchain_chain"
+        and chain_executor is not None
+        and agent_key in AGENT_CONFIGS
+    )
+    if use_chain:
+        executor = chain_executor
+    else:
+        if agent_key not in AGENTS:
+            raise HTTPException(404, f"Agent '{agent_key}' not found")
+        executor = AGENTS[agent_key]
     
     # Handle session
     if request.session_id:
@@ -1452,7 +1487,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             # Process the request
             logging.info(f"Processing request with agent: {agent_key}")
             try:
-                response = await agent.process(request, history, shared_context, agent_key=agent_key)
+                response = await executor.process(request, history, shared_context, agent_key=agent_key)
                 logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
                 
                 if not response:
@@ -1471,7 +1506,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
                 output = response.output
                 logging.info(f"✅ Response received, starting to stream output (length: {len(output)})")
             except Exception as process_error:
-                logging.error(f"❌ Error in agent.process(): {process_error}", exc_info=True)
+                logging.error(f"❌ Error in executor.process(): {process_error}", exc_info=True)
                 yield f"data: {json.dumps({'error': f'Processing error: {str(process_error)}'})}\n\n"
                 yield f"data: {json.dumps({'done': True})}\n\n"
                 return

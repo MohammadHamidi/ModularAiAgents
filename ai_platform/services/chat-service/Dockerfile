@@ -29,6 +29,9 @@ RUN pip install --upgrade pip && \
 # Copy shared folder
 COPY shared /app/shared
 
+# Copy QA examples for few-shot prompt injection
+COPY QA_EXAMPLES.md /app/QA_EXAMPLES.md
+
 # Copy service code
 COPY services/chat-service /app/services/chat-service
 

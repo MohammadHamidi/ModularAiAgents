@@ -12,6 +12,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
+from shared.prompt_builder import build_system_prompt, build_context_summary
 from agents.litellm_compat import create_litellm_compatible_client, create_openai_client
 from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
 from monitoring import ExecutionTrace, trace_collector
@@ -488,30 +489,7 @@ Returns:
 
     def _build_context_summary(self, user_info: Dict[str, Any]) -> str:
         """Build a brief context summary for injecting into user message."""
-        if not user_info:
-            return ""
-        
-        parts = []
-        
-        # Build field labels dynamically from config
-        field_labels = {}
-        for field_config in self.agent_config.user_data_fields:
-            # Use field_labels from context_display config if available
-            label = self.agent_config.context_display.get('field_labels', {}).get(
-                field_config.normalized_name,
-                field_config.field_name  # Fallback to field_name
-            )
-            field_labels[field_config.normalized_name] = label
-        
-        for key, data in user_info.items():
-            value = data.get('value') if isinstance(data, dict) else data
-            if value:
-                label = field_labels.get(key, key)
-                if isinstance(value, list):
-                    value = '، '.join(str(v) for v in value)
-                parts.append(f"{label}: {value}")
-        
-        return '؛ '.join(parts) if parts else ""
+        return build_context_summary(self.agent_config, user_info)
 
     def _convert_history(
         self, history: Optional[List[Dict[str, Any]]]
@@ -537,85 +515,20 @@ Returns:
         
         return converted
 
-    def _get_dynamic_field_instructions(self) -> str:
-        """Build dynamic field extraction instructions based on enabled fields."""
-        enabled_fields = self.agent_config.get_enabled_fields()
-        lines = ["🔧 فیلدهای قابل ذخیره (از save_user_info استفاده کن):"]
-        for f in enabled_fields:
-            aliases_hint = f" یا {', '.join(f.aliases)}" if f.aliases else ""
-            lines.append(f"  - {f.field_name}{aliases_hint} → save_user_info(field_name=\"{f.field_name}\", ...)")
-        return "\n".join(lines)
-
     def _build_dynamic_system_prompt(
         self,
         user_info: Dict[str, Any],
-        last_user_messages: List[Dict[str, Any]]
+        last_user_messages: List[Dict[str, Any]],
+        agent_key: str = "unknown",
     ) -> str:
-        """Build a context-aware system prompt using configuration."""
-        parts = []
-
-        # Add complete system prompt from config
-        complete_prompt = self.agent_config.get_complete_system_prompt()
-        if complete_prompt:
-            parts.append(complete_prompt)
-        
-        # Add dynamic field instructions (so agent knows all available fields)
-        parts.append(self._get_dynamic_field_instructions())
-
-        # Add user information context if enabled
-        context_config = self.agent_config.context_display
-        if context_config.get('enabled', True) and user_info:
-            context_lines = [context_config.get('header', '📋 User Information:')]
-
-            field_labels = context_config.get('field_labels', {})
-            language_names = context_config.get('language_names', {})
-
-            # Display each field that has a value
-            for field_config in self.agent_config.user_data_fields:
-                normalized_name = field_config.normalized_name
-                if normalized_name not in user_info:
-                    continue
-
-                value_data = user_info[normalized_name]
-                value = value_data.get("value") if isinstance(value_data, dict) else value_data
-
-                if not value:
-                    continue
-
-                # Get display label
-                label = field_labels.get(normalized_name, normalized_name)
-
-                # Format value
-                if isinstance(value, list):
-                    if len(value) > 0:
-                        value_str = "، ".join(str(v) for v in value)
-                        context_lines.append(f"  • {label}: {value_str}")
-                elif normalized_name == "preferred_language" and value in language_names:
-                    lang_display = language_names.get(value, value)
-                    context_lines.append(f"  • {label}: {lang_display}")
-                else:
-                    context_lines.append(f"  • {label}: {value}")
-
-            if len(context_lines) > 1:  # More than just header
-                parts.append("\n".join(context_lines))
-
-        # Add recent messages context if enabled
-        recent_config = self.agent_config.recent_messages_context
-        if recent_config.get('enabled', True) and last_user_messages:
-            count = recent_config.get('count', 2)
-            max_length = recent_config.get('max_length', 150)
-            header = recent_config.get('header', '💬 Recent Messages:')
-
-            context_lines = [header]
-            for i, msg in enumerate(last_user_messages[-count:], 1):
-                content = msg.get("content", "")[:max_length]
-                if len(msg.get("content", "")) > max_length:
-                    content += "..."
-                context_lines.append(f"  {i}. {content}")
-
-            parts.append("\n".join(context_lines))
-
-        return "\n\n".join(parts)
+        """Build a context-aware system prompt using shared prompt builder."""
+        return build_system_prompt(
+            self.agent_config,
+            user_info,
+            last_user_messages,
+            executor_mode="pydantic_ai",
+            agent_key=agent_key,
+        )
     
     def _remove_unwanted_extra_text(self, output: str) -> str:
         """
@@ -806,7 +719,8 @@ Returns:
         # Build dynamic system prompt with user context
         dynamic_system_prompt = self._build_dynamic_system_prompt(
             shared_context or {},
-            last_user_messages
+            last_user_messages,
+            agent_key=agent_key,
         )
 
         # Capture system prompt in trace

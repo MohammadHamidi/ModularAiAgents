@@ -1,4 +1,22 @@
 services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: aiplatform
+      POSTGRES_PASSWORD: aiplatform
+      POSTGRES_DB: aiplatform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiplatform -d aiplatform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   chat-service:
     build:
       context: .
@@ -7,14 +25,16 @@ services:
       # Build args can leak into image history and build logs.
       # All secrets must be in environment: section below (runtime only).
       # If Coolify passes secrets as build args, move them to runtime env vars.
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       # =======================================================================
       # RUNTIME ENVIRONMENT VARIABLES (Secure - not in build history)
       # These are injected at container startup, not during build.
       # =======================================================================
-      # Database: REQUIRED - must be set in Coolify environment variables
-      # Format: postgresql+asyncpg://user:pass@host:5432/dbname
-      DATABASE_URL: ${DATABASE_URL}
+      # Database: Uses local postgres if DATABASE_URL not set
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aiplatform:aiplatform@db:5432/aiplatform}
       
       # LiteLLM Configuration
       LITELLM_API_KEY: ${LITELLM_API_KEY:-sk-or}
@@ -24,6 +44,9 @@ services:
       # Session Configuration
       MAX_SESSION_MESSAGES: ${MAX_SESSION_MESSAGES:-30}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-14400}
+
+      # Executor mode: pydantic_ai (default) or langchain_chain
+      EXECUTOR_MODE: ${EXECUTOR_MODE:-pydantic_ai}
       
       # LightRAG Configuration
       LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL:-https://knowledgsafiran.pish.run/}
@@ -59,3 +82,6 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+volumes:
+  postgres_data:

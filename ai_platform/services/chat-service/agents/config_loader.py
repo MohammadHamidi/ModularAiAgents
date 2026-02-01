@@ -77,20 +77,45 @@ class AgentConfig:
                 field_map[alias.lower()] = field_config.normalized_name
         return field_map
 
-    def get_complete_system_prompt(self) -> str:
-        """Build complete system prompt with all instructions."""
+    def get_complete_system_prompt(
+        self,
+        executor_mode: str = "pydantic_ai"
+    ) -> str:
+        """
+        Build complete system prompt with all instructions.
+
+        Args:
+            executor_mode: "pydantic_ai" (tool-based) or "langchain_chain" (context-provided)
+        """
         parts = []
 
         if self.system_prompt:
             parts.append(self.system_prompt)
 
-        if self.silent_operation_instructions:
-            parts.append(self.silent_operation_instructions)
-
-        if self.tool_usage_instructions:
-            parts.append(self.tool_usage_instructions)
+        if executor_mode == "langchain_chain":
+            # Chain mode: KB context is provided in prompt; entity extraction runs automatically
+            # Keep tone rules (silent_operation) - critical for QA format alignment
+            parts.append(_CHAIN_MODE_INSTRUCTIONS)
+            if self.silent_operation_instructions:
+                parts.append(self.silent_operation_instructions)
+        else:
+            # Agentic mode: tool-based instructions
+            if self.silent_operation_instructions:
+                parts.append(self.silent_operation_instructions)
+            if self.tool_usage_instructions:
+                parts.append(self.tool_usage_instructions)
 
         return "\n\n".join(parts)
+
+
+# Chain-based mode: replaces tool_usage and silent_operation instructions
+_CHAIN_MODE_INSTRUCTIONS = """
+CONTEXT PROVIDED BY SYSTEM (no tools):
+- Knowledge Base context is provided below when relevant. Use it to answer in your warm, natural tone.
+- User data extraction runs automatically before your response. Focus on natural conversation.
+- Never mention "KB", "database", "extraction", or internal systems. Answer as if you know.
+"""
+
 
 
 class ConfigLoader:
