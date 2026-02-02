@@ -1,4 +1,5 @@
-FROM --platform=linux/amd64 python:3.11-slim-bookworm
+# Base from GHCR so builds succeed when Docker Hub (registry-1.docker.io) is unreachable.
+FROM --platform=linux/amd64 ghcr.io/docker-library/python:3.11-slim-bookworm
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)

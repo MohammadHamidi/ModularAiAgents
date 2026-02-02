@@ -1,7 +1,7 @@
-# Use standard tag for better compatibility and caching
-# If you encounter TLS handshake timeouts, see DOCKER_BUILD_TROUBLESHOOTING.md
-# --platform=linux/amd64 avoids "No matching distribution for pydantic" on ARM build nodes
-FROM --platform=linux/amd64 python:3.11-slim-bookworm
+# Use standard tag for better compatibility and caching.
+# Base from GHCR (not Docker Hub) so builds succeed when registry-1.docker.io is unreachable (e.g. TLS timeout).
+# --platform=linux/amd64 avoids "No matching distribution for pydantic" on ARM build nodes.
+FROM --platform=linux/amd64 ghcr.io/docker-library/python:3.11-slim-bookworm
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
