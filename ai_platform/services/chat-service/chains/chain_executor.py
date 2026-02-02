@@ -59,6 +59,74 @@ def _post_process_output(
     return result
 
 
+def _ensure_suggestions_section(output: str, user_message: str) -> str:
+    """
+    Append "پیشنهادهای بعدی:" block when missing so the UI can show follow-up buttons.
+    Uses output and user_message to pick contextual suggestions (same format as Chat.html expects).
+    """
+    patterns = [
+        r"پیشنهادهای بعدی\s*:",
+        r"Next actions\s*:",
+    ]
+    if any(re.search(p, output, re.IGNORECASE) for p in patterns):
+        return output
+
+    out_lower = output.lower()
+    user_lower = user_message.lower()
+    suggestions: List[str] = []
+
+    # From response content
+    if "کنش" in out_lower or "کنش" in user_lower:
+        if "ویژه" in out_lower or "ویژه" in user_lower:
+            suggestions.extend(["کنش‌های ویژه خانه", "کنش‌های ویژه فضای مجازی", "کنش‌های ویژه مسجد و مدرسه"])
+        if "خانه" in out_lower or "خانگی" in out_lower:
+            suggestions.append("کنش‌های ویژه خانگی")
+        if "مدرسه" in out_lower:
+            suggestions.append("نحوه اجرای کنش در مدرسه")
+        if "مسجد" in out_lower:
+            suggestions.append("کنش‌های مسجد")
+        if "محفل" in out_lower:
+            suggestions.append("نحوه برگزاری محفل خانگی")
+        if "فضای مجازی" in out_lower or "مجازی" in out_lower:
+            suggestions.append("کنش‌های فضای مجازی")
+        if not suggestions:
+            suggestions.extend(["لیست کنش‌های ویژه", "کنش‌های خانه", "کنش‌های مدرسه"])
+
+    if "پلتفرم" in out_lower or "safiranayeha" in out_lower:
+        suggestions.append("بریم پلتفرم و لیست کنش‌ها رو ببینم")
+
+    if "نهضت" in out_lower or "زندگی با آیه" in out_lower:
+        if "فلسفه" in out_lower or "داستان" in user_lower:
+            suggestions.append("درباره فلسفه نهضت بیشتر بدانم")
+        if "سفیر" in out_lower:
+            suggestions.append("سفیر آیه‌ها یعنی چی؟")
+
+    if "ثبت" in out_lower or "گزارش" in out_lower:
+        suggestions.append("نحوه ثبت گزارش کنش")
+    if "امتیاز" in out_lower:
+        suggestions.append("سیستم امتیازدهی سفیران")
+
+    # Dedupe and limit
+    seen = set()
+    unique = []
+    for s in suggestions:
+        s_clean = s.strip()
+        if s_clean and s_clean not in seen and len(unique) < 4:
+            seen.add(s_clean)
+            unique.append(s_clean)
+
+    if not unique:
+        if "کنش" in out_lower:
+            unique = ["لیست کنش‌های ویژه", "بریم پلتفرم"]
+        else:
+            unique = ["درباره نهضت بیشتر بدانم", "کنش‌های موجود"]
+
+    block = "\n\nپیشنهادهای بعدی:\n"
+    for i, s in enumerate(unique, 1):
+        block += f"{i}) {s}\n"
+    return output.rstrip() + block
+
+
 class ChainExecutor:
     """
     Chain-based executor implementing same interface as ChatAgent.process().
@@ -69,16 +137,19 @@ class ChainExecutor:
         agent_configs: Dict[str, Any],
         kb_tool: Any,
         konesh_tool: Optional[Any] = None,
+        konesh_csv_tool: Optional[Any] = None,
     ):
         """
         Args:
             agent_configs: {agent_key: AgentConfig} e.g. from AGENT_CONFIGS
             kb_tool: KnowledgeBaseTool instance
-            konesh_tool: Optional KoneshQueryTool
+            konesh_tool: Optional KoneshQueryTool (action_expert)
+            konesh_csv_tool: Optional KoneshCSVTool (full کنش CSV for all agents)
         """
         self.agent_configs = agent_configs
         self.kb_tool = kb_tool
         self.konesh_tool = konesh_tool
+        self.konesh_csv_tool = konesh_csv_tool
         self.router = RouterChain()
         self._specialists: Dict[str, SpecialistChain] = {}
 
@@ -95,6 +166,7 @@ class ChainExecutor:
             agent_config=config,
             kb_tool=self.kb_tool,
             konesh_tool=konesh,
+            konesh_csv_tool=self.konesh_csv_tool,
         )
         self._specialists[agent_key] = chain
         return chain
@@ -172,6 +244,8 @@ class ChainExecutor:
         output = _post_process_output(
             output, agent_key, agent_name, request.message
         )
+        # Ensure follow-up suggestions block so the UI can show clickable suggestions
+        output = _ensure_suggestions_section(output, request.message)
 
         # Build updated history
         now = datetime.datetime.utcnow().isoformat()
@@ -203,3 +277,106 @@ class ChainExecutor:
             },
             context_updates=context_updates,
         )
+
+    async def process_stream(
+        self,
+        request: AgentRequest,
+        history: Optional[List[Dict[str, Any]]] = None,
+        shared_context: Optional[Dict[str, Any]] = None,
+        agent_key: str = "unknown",
+    ):
+        """
+        Process request with real LLM streaming (async generator).
+        Yields: {"type": "chunk", "content": str} then {"type": "done", "output": str, "metadata": dict}.
+        Only supported when using chain executor (EXECUTOR_MODE=langchain_chain).
+        """
+        history = history or []
+        shared_context = shared_context or {}
+
+        if agent_key == "orchestrator":
+            hist_summary = ""
+            if history:
+                last = history[-2:] if len(history) >= 2 else history
+                hist_summary = " | ".join(
+                    m.get("content", "")[:80] for m in last if m.get("content")
+                )
+            agent_key = await asyncio.to_thread(
+                self.router.invoke, request.message, hist_summary
+            )
+            logger.info(f"Router selected agent_key={agent_key} for stream")
+
+        specialist = self._get_specialist(agent_key)
+        if not specialist:
+            agent_key = "guest_faq"
+            specialist = self._get_specialist(agent_key)
+        if not specialist:
+            err_msg = "متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید."
+            yield {"type": "chunk", "content": err_msg}
+            yield {
+                "type": "done",
+                "output": err_msg,
+                "metadata": {"error": "no_specialist", "agent_key": agent_key, "history": history},
+            }
+            return
+
+        config = self.agent_configs[agent_key]
+        agent_name = getattr(config, "agent_name", agent_key)
+        extractor = EntityExtractionChain(config)
+        context_updates = await extractor.invoke(request.message)
+        context_block = build_context_summary(config, shared_context)
+        recent_config = getattr(config, "recent_messages_context", {}) or {}
+        count = recent_config.get("count", 2)
+        last_user = [
+            m for m in history[-count * 3 :]
+            if m.get("role") == "user"
+        ][-count:]
+
+        full_output = ""
+        try:
+            async for chunk in specialist.run_stream(
+                user_message=request.message,
+                user_info=shared_context,
+                last_user_messages=last_user,
+                history=history,
+                context_block=context_block,
+            ):
+                full_output += chunk
+                yield {"type": "chunk", "content": chunk}
+        except Exception as e:
+            logger.exception(f"Stream generation failed: {e}")
+            full_output = full_output or f"خطا در تولید پاسخ: {str(e)}"
+            yield {"type": "chunk", "content": full_output}
+
+        output = _post_process_output(
+            full_output, agent_key, agent_name, request.message
+        )
+        output = _ensure_suggestions_section(output, request.message)
+
+        if len(output) > len(full_output):
+            yield {"type": "chunk", "content": output[len(full_output):]}
+
+        now = datetime.datetime.utcnow().isoformat()
+        updated_history = list(history)
+        updated_history.append({
+            "role": "user",
+            "content": request.message,
+            "timestamp": now,
+        })
+        updated_history.append({
+            "role": "assistant",
+            "content": output,
+            "timestamp": now,
+        })
+        model = getattr(config, "model_config", {}) or {}
+        model_name = model.get("default_model") or "chain"
+        yield {
+            "type": "done",
+            "output": output,
+            "metadata": {
+                "model": model_name,
+                "history": updated_history,
+                "agent_key": agent_key,
+                "executor": "langchain_chain",
+            },
+            "context_updates": context_updates,
+        }

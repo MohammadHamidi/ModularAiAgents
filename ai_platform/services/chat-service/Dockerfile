@@ -32,6 +32,10 @@ COPY shared /app/shared
 # Copy QA examples for few-shot prompt injection
 COPY QA_EXAMPLES.md /app/QA_EXAMPLES.md
 
+# کنش CSV: Docker build may fail with Persian filenames in COPY. Mount at runtime
+# or set KONESH_CSV_PATH, e.g. in docker-compose: volumes: - ./کنش_های سفیران آیه_ها.csv:/app/konesh.csv
+# and env: KONESH_CSV_PATH=/app/konesh.csv
+
 # Copy service code
 COPY services/chat-service /app/services/chat-service
 

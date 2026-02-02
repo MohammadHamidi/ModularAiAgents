@@ -29,6 +29,7 @@ from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool, GetCompanyInfoTool
 from tools.konesh_query import KoneshQueryTool
+from tools.konesh_csv import KoneshCSVTool
 
 # Import monitoring
 from monitoring import trace_collector
@@ -278,16 +279,17 @@ async def startup():
     ToolRegistry.register_tool(WebSearchTool())
     ToolRegistry.register_tool(GetCompanyInfoTool())
     ToolRegistry.register_tool(KoneshQueryTool())
+    ToolRegistry.register_tool(KoneshCSVTool())
     
     logging.info(f"Registered {len(ToolRegistry.list_tools())} tools: {ToolRegistry.list_tools()}")
     
-    # Define which tools each persona can use
+    # Define which tools each persona can use (query_konesh_csv = full کنش CSV for all agents)
     persona_tool_assignments = {
         "orchestrator": ["route_to_agent"],  # Orchestrator routing tool
-        "guest_faq": ["knowledge_base_query"],  # FAQ agent - minimal tools
-        "action_expert": ["query_konesh", "knowledge_base_query"],  # Action expert tools
-        "journey_register": ["query_konesh", "knowledge_base_query"],  # Journey agent - needs KB for guidance
-        "rewards_invite": ["knowledge_base_query"],  # Rewards agent - basic tools
+        "guest_faq": ["knowledge_base_query", "query_konesh_csv"],  # FAQ + کنش reference
+        "action_expert": ["query_konesh", "knowledge_base_query", "query_konesh_csv"],  # Action expert + CSV
+        "journey_register": ["query_konesh", "knowledge_base_query", "query_konesh_csv"],  # Journey + CSV
+        "rewards_invite": ["knowledge_base_query", "query_konesh_csv"],  # Rewards + کنش reference
     }
     
     # ==========================================================================
@@ -383,11 +385,13 @@ async def startup():
         from chains.chain_executor import ChainExecutor
         kb_tool = ToolRegistry.get_tool("knowledge_base_query")
         konesh_tool = ToolRegistry.get_tool("query_konesh")
+        konesh_csv_tool = ToolRegistry.get_tool("query_konesh_csv")
         if kb_tool and AGENT_CONFIGS:
             chain_executor = ChainExecutor(
                 agent_configs=AGENT_CONFIGS,
                 kb_tool=kb_tool,
                 konesh_tool=konesh_tool,
+                konesh_csv_tool=konesh_csv_tool,
             )
             logging.info("✅ Chain executor initialized (EXECUTOR_MODE=langchain_chain)")
         else:
@@ -1422,8 +1426,6 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     Direct routing to the specified agent.
     Returns streaming response as Server-Sent Events (SSE).
     """
-    import asyncio
-    
     logging.info(f"Streaming request received for agent_key: {agent_key}, session_id: {request.session_id}")
     logging.info(f"Available agents: {list(AGENTS.keys())}")
     
@@ -1476,76 +1478,86 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     request.session_id = str(sid)
     
     async def generate_stream():
-        """Generate streaming response chunks"""
+        """Generate streaming response chunks. Uses real LLM streaming when executor supports it."""
         response = None
         try:
             logging.info(f"Starting stream generation for agent: {agent_key}, session: {sid}")
-            
-            # Send session ID first
             yield f"data: {json.dumps({'session_id': str(sid)})}\n\n"
-            
-            # Process the request
-            logging.info(f"Processing request with agent: {agent_key}")
-            try:
-                response = await executor.process(request, history, shared_context, agent_key=agent_key)
-                logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
-                
-                if not response:
-                    logging.error("❌ Agent.process() returned None!")
-                    yield f"data: {json.dumps({'error': 'Agent returned no response'})}\n\n"
+
+            # Real streaming: chain executor supports process_stream (LLM tokens as they arrive)
+            use_real_stream = use_chain and hasattr(executor, "process_stream") and callable(getattr(executor, "process_stream", None))
+
+            if use_real_stream:
+                logging.info("Using real LLM streaming (process_stream)")
+                try:
+                    async for event in executor.process_stream(request, history, shared_context, agent_key=agent_key):
+                        if event.get("type") == "chunk":
+                            content = event.get("content", "")
+                            if content:
+                                yield f"data: {json.dumps({'chunk': content})}\n\n"
+                        elif event.get("type") == "done":
+                            response = type("StreamDone", (), {
+                                "output": event.get("output", ""),
+                                "metadata": event.get("metadata", {}),
+                                "context_updates": event.get("context_updates", {}),
+                            })()
+                            break
+                except Exception as stream_err:
+                    logging.exception(f"Stream generation failed: {stream_err}")
+                    yield f"data: {json.dumps({'error': str(stream_err)})}\n\n"
                     yield f"data: {json.dumps({'done': True})}\n\n"
                     return
-                
-                if not response.output or len(response.output.strip()) == 0:
-                    logging.warning("⚠️ Agent returned empty output!")
-                    yield f"data: {json.dumps({'error': 'Agent returned empty response'})}\n\n"
+            else:
+                # Fallback: full response then replay (Pydantic AI or no process_stream)
+                try:
+                    response = await executor.process(request, history, shared_context, agent_key=agent_key)
+                    if not response:
+                        logging.error("❌ Agent.process() returned None!")
+                        yield f"data: {json.dumps({'error': 'Agent returned no response'})}\n\n"
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        return
+                    if not response.output or len(response.output.strip()) == 0:
+                        logging.warning("⚠️ Agent returned empty output!")
+                        yield f"data: {json.dumps({'error': 'Agent returned empty response'})}\n\n"
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        return
+                    words = response.output.split(" ")
+                    for i, word in enumerate(words):
+                        chunk = word + (" " if i < len(words) - 1 else "")
+                        yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                except Exception as process_error:
+                    logging.error(f"❌ Error in executor.process(): {process_error}", exc_info=True)
+                    yield f"data: {json.dumps({'error': f'Processing error: {str(process_error)}'})}\n\n"
                     yield f"data: {json.dumps({'done': True})}\n\n"
                     return
-                
-                # Post-process the output (same as regular endpoint)
-                output = response.output
-                logging.info(f"✅ Response received, starting to stream output (length: {len(output)})")
-            except Exception as process_error:
-                logging.error(f"❌ Error in executor.process(): {process_error}", exc_info=True)
-                yield f"data: {json.dumps({'error': f'Processing error: {str(process_error)}'})}\n\n"
-                yield f"data: {json.dumps({'done': True})}\n\n"
-                return
-            
-            # Stream the output word by word for better UX
-            logging.info(f"Starting to stream {len(output.split(' '))} words")
-            words = output.split(" ")
-            for i, word in enumerate(words):
-                chunk = word + (" " if i < len(words) - 1 else "")
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-                await asyncio.sleep(0.01)  # Small delay for smooth streaming (10ms per word)
-            
-            logging.info("✅ Finished streaming all chunks, sending done signal")
-            # Send done signal
+
             yield f"data: {json.dumps({'done': True})}\n\n"
-            
-            # Save session and context (same as regular endpoint)
+
             if response:
                 try:
-                    new_history = response.metadata.get("history", history)
+                    new_history = getattr(response, "metadata", {}) or {}
+                    if isinstance(new_history, dict):
+                        new_history = new_history.get("history", history)
+                    else:
+                        new_history = history
                     await session_manager.upsert_session(
                         sid,
                         new_history,
                         agent_key,
                         metadata={"last_agent": agent_key}
                     )
-                    if response.context_updates:
+                    context_updates = getattr(response, "context_updates", None) or {}
+                    if context_updates:
                         try:
                             await context_manager.merge_context(
                                 sid,
-                                response.context_updates,
+                                context_updates,
                                 agent_type=agent_key
                             )
                         except Exception as e:
                             logging.error(f"Database connection error when saving context for session {sid}: {e}")
-                            logging.warning("Context not persisted due to database error, but response sent successfully")
                 except Exception as e:
                     logging.error(f"Database connection error when saving session {sid}: {e}")
-                    logging.warning("Session not persisted due to database error, but response sent successfully")
                 
         except Exception as e:
             logging.error(f"Streaming error: {e}", exc_info=True)

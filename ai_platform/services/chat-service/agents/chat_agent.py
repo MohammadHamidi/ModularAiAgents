@@ -345,6 +345,32 @@ Returns:
                 return result
             konesh_tool.__doc__ = full_doc
             self.agent.tool(konesh_tool)
+
+        elif tool.name == "query_konesh_csv":
+            async def konesh_csv_tool(
+                ctx: RunContext[ChatDependencies],
+                query: str,
+                bestar_anjam: Optional[str] = None,
+                sathe_sakhti: Optional[str] = None,
+                koneshgar: Optional[str] = None,
+                hashtags: Optional[str] = None,
+                vizhe: Optional[bool] = None,
+                limit: int = 15
+            ) -> str:
+                """Query full کنش CSV by بستر انجام, سطح سختی, کنش‌گر, هشتگ‌ها, ویژه. Use vizhe=True for کنش ویژه only."""
+                result = await tool_ref.execute(
+                    query=query,
+                    bestar_anjam=bestar_anjam,
+                    sathe_sakhti=sathe_sakhti,
+                    koneshgar=koneshgar,
+                    hashtags=hashtags,
+                    vizhe=vizhe,
+                    limit=limit
+                )
+                ctx.deps.tool_results[tool_ref.name] = result
+                return result
+            konesh_csv_tool.__doc__ = full_doc
+            self.agent.tool(konesh_csv_tool)
             
         elif tool.name == "route_to_agent":
             # AgentRouterTool uses run() method, not execute()

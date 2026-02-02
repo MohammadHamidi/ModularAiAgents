@@ -6,13 +6,15 @@ from tools.knowledge_base import KnowledgeBaseTool
 from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool
+from tools.konesh_csv import KoneshCSVTool
 
 __all__ = [
     'ToolRegistry',
     'Tool',
     'KnowledgeBaseTool',
-    'CalculatorTool', 
+    'CalculatorTool',
     'WeatherTool',
     'WebSearchTool',
+    'KoneshCSVTool',
 ]
 
