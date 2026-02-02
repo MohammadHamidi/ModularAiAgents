@@ -16,10 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # =============================================================================
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
+# Try default PyPI first; on timeout/SSL errors fall back to a public mirror.
 # =============================================================================
 COPY services/gateway/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --default-timeout=120 --retries 5 -r /app/requirements.txt
+    (pip install --no-cache-dir --default-timeout=120 --retries 5 -r /app/requirements.txt || \
+     pip install --no-cache-dir --default-timeout=300 --retries 10 \
+       -i "https://mirror-pypi.runflare.com/simple/" \
+       --trusted-host "mirror-pypi.runflare.com" \
+       -r /app/requirements.txt)
 
 # =============================================================================
 # LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
