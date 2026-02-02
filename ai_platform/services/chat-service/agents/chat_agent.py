@@ -556,6 +556,19 @@ Returns:
             agent_key=agent_key,
         )
     
+    def _format_numbered_list_newlines(self, text: str) -> str:
+        """
+        Put each numbered list item on its own line (Persian ۱. ۲. ۳. or English 1) 2) 3)).
+        So "۱. ... ۲. ... ۳. ..." on one line becomes separate lines.
+        """
+        if not text or not text.strip():
+            return text
+        # Persian digits: ۱ ۲ ۳ – newline before " N." or " N)"
+        text = re.sub(r"([^\n])\s+([۱۲۳۴۵۶۷۸۹۰]+[\.\)])\s+", r"\1\n\n\2 ", text)
+        # English digits: newline before " 2)" or " 2."
+        text = re.sub(r"([^\n])\s+(\d+)[\.\)]\s+", r"\1\n\n\2) ", text)
+        return text
+
     def _remove_unwanted_extra_text(self, output: str) -> str:
         """
         Remove unwanted extra explanatory text/paragraphs that LLM sometimes adds.
@@ -624,6 +637,9 @@ Returns:
         
         # Trim whitespace
         cleaned = cleaned.strip()
+        
+        # Put each numbered list item on its own line (Persian and English)
+        cleaned = self._format_numbered_list_newlines(cleaned)
         
         # Reattach suggestions section if it existed
         if suggestions_section:
@@ -1247,10 +1263,18 @@ Returns:
             converted = self._convert_to_user_perspective(suggestion)
             converted_suggestions.append(converted)
 
+        # Platform URL for suggestions that should open in browser (same as chain_executor)
+        platform_base_url = "https://safiranayeha.ir"
+
+        def _suggestion_line(label: str) -> str:
+            if "بریم پلتفرم" in label or "لیست کنش" in label:
+                return f"{label} | {platform_base_url}/"
+            return label
+
         # Format suggestions section
         suggestions_text = "\n\nپیشنهادهای بعدی:\n"
         for i, suggestion in enumerate(converted_suggestions, 1):
-            suggestions_text += f"{i}) {suggestion}\n"
+            suggestions_text += f"{i}) {_suggestion_line(suggestion)}\n"
 
         return output + suggestions_text
     

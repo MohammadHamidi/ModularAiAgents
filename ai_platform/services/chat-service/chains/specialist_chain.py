@@ -134,7 +134,7 @@ class SpecialistChain:
         self.llm = _create_llm(temperature=temp)
 
     async def _retrieve_kb(self, user_message: str, history: List[Dict]) -> str:
-        """Retrieve KB context for user message."""
+        """Retrieve KB context for user message. Passes conversation_history to LightRAG for context-aware retrieval."""
         if _is_greeting(user_message):
             return ""
         conv = []
@@ -144,6 +144,8 @@ class SpecialistChain:
                 content = m.get("content", "")
                 if content:
                     conv.append({"role": role, "content": content[:500]})
+        if conv:
+            logger.debug(f"LightRAG query with conversation_history: {len(conv)} messages")
         try:
             result = await self.kb_tool.execute(
                 query=user_message,

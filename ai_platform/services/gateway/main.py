@@ -214,6 +214,21 @@ async def health():
             "error": str(e)
         }
 
+@app.get("/health/dependencies", tags=["Health"])
+async def health_dependencies():
+    """
+    Forward to chat-service dependency check (session memory + LightRAG).
+    Returns database and lightrag status so you can verify both work.
+    """
+    try:
+        response = await http_client.get("/health/dependencies")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
 @app.get("/agents", tags=["Agents"])
 async def list_agents():
     """

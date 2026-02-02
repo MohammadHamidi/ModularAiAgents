@@ -18,6 +18,23 @@ from chains.entity_extraction_chain import EntityExtractionChain
 
 logger = logging.getLogger(__name__)
 
+# Platform URL for suggestion links (open in browser instead of sending as message)
+PLATFORM_BASE_URL = "https://safiranayeha.ir"
+
+
+def _format_numbered_list_newlines(text: str) -> str:
+    """
+    Insert newlines before numbered list items so "۱. ... ۲. ... ۳. ..." or "1) ... 2) ..."
+    each appear on their own line. Handles Persian (۱۲۳...) and English digits.
+    """
+    if not text or not text.strip():
+        return text
+    # Persian digits: ۱ ۲ ۳ etc. – insert newline before " N." when preceded by non-newline
+    text = re.sub(r"([^\n])\s+([۱۲۳۴۵۶۷۸۹۰]+[\.\)])\s+", r"\1\n\n\2 ", text)
+    # English digits: 2) or 2. – insert newline before " N)" or " N."
+    text = re.sub(r"([^\n])\s+(\d+)[\.\)]\s+", r"\1\n\n\2) ", text)
+    return text
+
 
 def _post_process_output(
     output: str,
@@ -55,6 +72,8 @@ def _post_process_output(
     for pat in unwanted:
         result = re.sub(pat, "", result, flags=re.MULTILINE | re.IGNORECASE)
     result = re.sub(r"\n{3,}", "\n\n", result).strip()
+    # Put each numbered list item on its own line (Persian and English)
+    result = _format_numbered_list_newlines(result)
 
     return result
 
@@ -121,9 +140,15 @@ def _ensure_suggestions_section(output: str, user_message: str) -> str:
         else:
             unique = ["درباره نهضت بیشتر بدانم", "کنش‌های موجود"]
 
+    def _suggestion_line(label: str) -> str:
+        """Append platform URL for 'go to platform' suggestions so UI can render as link."""
+        if "بریم پلتفرم" in label or "لیست کنش" in label:
+            return f"{label} | {PLATFORM_BASE_URL}/"
+        return label
+
     block = "\n\nپیشنهادهای بعدی:\n"
     for i, s in enumerate(unique, 1):
-        block += f"{i}) {s}\n"
+        block += f"{i}) {_suggestion_line(s)}\n"
     return output.rstrip() + block
 
 

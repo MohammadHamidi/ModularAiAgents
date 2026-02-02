@@ -209,6 +209,17 @@
             background-color: #eff6ff;
         }
 
+        .suggestion-link {
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        .suggestion-link:hover {
+            transform: translateX(-2px);
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+
         /* ===== Markdown Styling ===== */
         .markdown-content {
             line-height: 1.8;
@@ -780,13 +791,22 @@
                     aiClient.setSessionId(finalResponse.session_id);
                 }
                 
-                // Parse suggestions if present
+                // Parse suggestions if present (each item may be "label" or "label | url")
                 const suggestionsMatch = fullText.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
                 if (suggestionsMatch) {
                     const mainText = fullText.substring(0, suggestionsMatch.index).trim();
                     const suggestionsText = suggestionsMatch[1].trim();
-                    const suggestions = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => {
+                    const rawItems = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => {
                         return s.replace(/^\d+\)\s*/, '').trim();
+                    });
+                    const suggestions = rawItems.map(s => {
+                        const pipe = s.indexOf(' | ');
+                        if (pipe > 0) {
+                            const label = s.substring(0, pipe).trim();
+                            const url = s.substring(pipe + 3).trim();
+                            return { label, url: url.startsWith('http') ? url : null };
+                        }
+                        return { label: s, url: null };
                     });
 
                     if (suggestions.length > 0) {
@@ -794,11 +814,12 @@
                             <div class="mt-4 pt-4 border-t border-gray-200">
                                 <p class="text-[13px] sm:text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p>
                                 <div class="space-y-2">
-                                    ${suggestions.map((s, idx) => `
-                                        <button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(s)}">
-                                            ${idx + 1}) ${escapeHtml(s)}
-                                        </button>
-                                    `).join('')}
+                                    ${suggestions.map((item, idx) => {
+                                        if (item.url) {
+                                            return `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="suggestion-link block w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer">${idx + 1}) ${escapeHtml(item.label)}</a>`;
+                                        }
+                                        return `<button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(item.label)}">${idx + 1}) ${escapeHtml(item.label)}</button>`;
+                                    }).join('')}
                                 </div>
                             </div>
                         `;
@@ -823,8 +844,38 @@
                 
                 try {
                     const response = await aiClient.sendMessage(message, false);
-                    streamingContent.innerHTML = marked.parse(response.output);
-                    
+                    const fullText = response.output || '';
+                    const suggestionsMatch = fullText.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
+                    if (suggestionsMatch) {
+                        const mainText = fullText.substring(0, suggestionsMatch.index).trim();
+                        const suggestionsText = suggestionsMatch[1].trim();
+                        const rawItems = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => s.replace(/^\d+\)\s*/, '').trim());
+                        const suggestions = rawItems.map(s => {
+                            const pipe = s.indexOf(' | ');
+                            if (pipe > 0) {
+                                const label = s.substring(0, pipe).trim();
+                                const url = s.substring(pipe + 3).trim();
+                                return { label, url: url.startsWith('http') ? url : null };
+                            }
+                            return { label: s, url: null };
+                        });
+                        if (suggestions.length > 0) {
+                            const suggestionsHtml = `<div class="mt-4 pt-4 border-t border-gray-200"><p class="text-[13px] sm:text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p><div class="space-y-2">${suggestions.map((item, idx) => item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="suggestion-link block w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg">${idx + 1}) ${escapeHtml(item.label)}</a>` : `<button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg" data-suggestion="${escapeHtml(item.label)}">${idx + 1}) ${escapeHtml(item.label)}</button>`).join('')}</div></div>`;
+                            streamingContent.innerHTML = marked.parse(mainText) + suggestionsHtml;
+                            messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
+                                btn.addEventListener('click', () => {
+                                    messageInput.value = btn.getAttribute('data-suggestion');
+                                    messageInput.focus();
+                                    autoResizeTextarea();
+                                    sendMessage();
+                                });
+                            });
+                        } else {
+                            streamingContent.innerHTML = marked.parse(fullText);
+                        }
+                    } else {
+                        streamingContent.innerHTML = marked.parse(fullText);
+                    }
                     if (response.session_id) {
                         aiClient.setSessionId(response.session_id);
                     }

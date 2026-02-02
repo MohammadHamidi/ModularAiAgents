@@ -453,6 +453,61 @@ async def health_stream():
         }
     )
 
+
+@app.get("/health/dependencies", tags=["Health"])
+async def health_dependencies():
+    """
+    Check that session memory (database) and LightRAG knowledge retrieval work.
+    Use this to verify both memory and knowledge base are correctly configured.
+
+    Returns:
+        database: "ok" if chat_sessions/context can be reached; "error" otherwise.
+        lightrag: "ok" if LightRAG returns context; "unavailable" if configured but unreachable; "not_configured" if LIGHTRAG_BASE_URL is not set.
+    """
+    result = {"database": "unknown", "lightrag": "not_configured"}
+
+    # 1) Session memory (database)
+    try:
+        _ = await session_manager.get_session(uuid.uuid4())
+        result["database"] = "ok"
+    except Exception as e:
+        logging.warning(f"Health dependencies: database check failed: {e}")
+        result["database"] = "error"
+        result["database_error"] = str(e)
+
+    # 2) LightRAG knowledge retrieval (optional)
+    lightrag_url = (os.getenv("LIGHTRAG_BASE_URL") or "").strip().rstrip("/")
+    if not lightrag_url:
+        result["lightrag"] = "not_configured"
+        return result
+
+    try:
+        import asyncio
+        kb = KnowledgeBaseTool()
+        task = kb.execute(
+            query="سلام",
+            mode="mix",
+            only_need_context=True,
+            include_references=False,
+            conversation_history=None,
+        )
+        out = await asyncio.wait_for(task, timeout=10.0)
+        if out and "UNAVAILABLE" not in (out or ""):
+            result["lightrag"] = "ok"
+        else:
+            result["lightrag"] = "unavailable"
+            result["lightrag_detail"] = (out or "empty")[:200]
+    except asyncio.TimeoutError:
+        result["lightrag"] = "unavailable"
+        result["lightrag_detail"] = "timeout"
+    except Exception as e:
+        logging.warning(f"Health dependencies: LightRAG check failed: {e}")
+        result["lightrag"] = "unavailable"
+        result["lightrag_detail"] = str(e)[:200]
+
+    return result
+
+
 @app.get("/agents", tags=["Agents"])
 async def list_agents():
     """
