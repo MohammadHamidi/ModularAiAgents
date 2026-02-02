@@ -1,5 +1,7 @@
-# Base from GHCR so builds succeed when Docker Hub (registry-1.docker.io) is unreachable.
-FROM --platform=linux/amd64 ghcr.io/docker-library/python:3.11-slim-bookworm
+# Use a registry mirror for the base image when Docker Hub is unreachable (no daemon restart needed).
+# Override in Coolify build args: DOCKER_REGISTRY_MIRROR=focker.ir or docker.dockerme.ir etc.
+ARG DOCKER_REGISTRY_MIRROR=docker.iranserver.com
+FROM --platform=linux/amd64 ${DOCKER_REGISTRY_MIRROR}/library/python:3.11-slim-bookworm
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)

@@ -1,7 +1,8 @@
-# Use standard tag for better compatibility and caching.
-# Base from GHCR (not Docker Hub) so builds succeed when registry-1.docker.io is unreachable (e.g. TLS timeout).
+# Use a registry mirror for the base image when Docker Hub is unreachable (no daemon restart needed).
+# Override in Coolify build args: DOCKER_REGISTRY_MIRROR=focker.ir or docker.dockerme.ir etc.
+ARG DOCKER_REGISTRY_MIRROR=docker.iranserver.com
 # --platform=linux/amd64 avoids "No matching distribution for pydantic" on ARM build nodes.
-FROM --platform=linux/amd64 ghcr.io/docker-library/python:3.11-slim-bookworm
+FROM --platform=linux/amd64 ${DOCKER_REGISTRY_MIRROR}/library/python:3.11-slim-bookworm
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
