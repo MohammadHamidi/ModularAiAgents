@@ -22,6 +22,33 @@ logger = logging.getLogger(__name__)
 PLATFORM_BASE_URL = "https://safiranayeha.ir"
 
 
+def _strip_redundant_mid_conversation_greeting(output: str, history: List) -> str:
+    """
+    When we're mid-conversation (history has prior messages), remove a leading
+    redundant greeting like "سلام محمد! چطور می‌تونم کمکت کنم؟" so the response
+    starts with the substantive part (e.g. "احسنت به این همت...") and feels natural.
+    """
+    if not output or not output.strip():
+        return output
+    if not history or len(history) < 2:
+        return output
+    text = output.strip()
+    # Match: optional whitespace + "سلام" + name/word + ! or ؟ + optional space + greeting phrase + optional ؟!
+    # Match full redundant greeting so we keep only the substantive part (e.g. احسنت به این همت...)
+    patterns = [
+        r"^\s*سلام\s+[^!؟\n]+[!؟]\s*چطور\s+می[‌'\s]*تونم\s+کمکت\s+کنم[؟!]?\s*",
+        r"^\s*سلام\s+[^!؟\n]+[!؟]\s*چه\s+خبر\s*(امروز)?[؟!]?\s*",
+    ]
+    for pat in patterns:
+        m = re.match(pat, text, re.IGNORECASE)
+        if m:
+            rest = text[m.end() :].strip()
+            if rest:
+                return rest.lstrip("\n").strip()
+            break
+    return output
+
+
 def _format_numbered_list_newlines(text: str) -> str:
     """
     Insert newlines before numbered list items so "۱. ... ۲. ... ۳. ..." or "1) ... 2) ..."
@@ -78,17 +105,31 @@ def _post_process_output(
     return result
 
 
+def _has_valid_suggestions_block(output: str) -> bool:
+    """True only if output has 'پیشنهادهای بعدی:' (or Next actions:) AND at least one numbered line (1) or ۱))."""
+    if not output or not output.strip():
+        return False
+    header = re.search(r"پیشنهادهای بعدی\s*:|Next actions\s*:", output, re.IGNORECASE)
+    if not header:
+        return False
+    after = output[header.end():].strip()
+    # Must have at least one line like "1) ..." or "۱) ..."
+    return bool(re.search(r"^[\d۱۲۳۴۵۶۷۸۹۰]+\s*\)", after, re.MULTILINE))
+
+
 def _ensure_suggestions_section(output: str, user_message: str) -> str:
     """
     Append "پیشنهادهای بعدی:" block when missing so the UI can show follow-up buttons.
-    Uses output and user_message to pick contextual suggestions (same format as Chat.html expects).
+    Only skip if there is already a valid block (header + numbered list). Otherwise strip any
+    broken "پیشنهادهای بعدی:" with no list and append our block.
     """
-    patterns = [
-        r"پیشنهادهای بعدی\s*:",
-        r"Next actions\s*:",
-    ]
-    if any(re.search(p, output, re.IGNORECASE) for p in patterns):
+    if _has_valid_suggestions_block(output):
         return output
+
+    # Strip trailing "پیشنهادهای بعدی:" (or "Next actions:") that has no numbered list, so we don't duplicate
+    strip_header = re.search(r"\n\s*پیشنهادهای بعدی\s*:.*$|\n\s*Next actions\s*:.*$", output, re.IGNORECASE | re.DOTALL)
+    if strip_header and not re.search(r"[\d۱۲۳۴۵۶۷۸۹۰]+\s*\)", strip_header.group(0)):
+        output = output[: strip_header.start()].rstrip()
 
     out_lower = output.lower()
     user_lower = user_message.lower()
@@ -113,6 +154,10 @@ def _ensure_suggestions_section(output: str, user_message: str) -> str:
 
     if "پلتفرم" in out_lower or "safiranayeha" in out_lower:
         suggestions.append("بریم پلتفرم و لیست کنش‌ها رو ببینم")
+    if "محتوا" in out_lower or "استوری" in out_lower or "ثبت‌نام" in out_lower or "کپشن" in out_lower:
+        suggestions.append("بریم پلتفرم و لیست کنش‌ها رو ببینم")
+        if "لیست کنش" not in " ".join(suggestions):
+            suggestions.append("لیست کنش‌های ویژه")
 
     if "نهضت" in out_lower or "زندگی با آیه" in out_lower:
         if "فلسفه" in out_lower or "داستان" in user_lower:
@@ -265,6 +310,9 @@ class ChainExecutor:
             context_block=context_block,
         )
 
+        # Strip redundant mid-conversation greeting so reply starts with substantive content
+        output = _strip_redundant_mid_conversation_greeting(output, history)
+
         # Post-process
         output = _post_process_output(
             output, agent_key, agent_name, request.message
@@ -372,6 +420,7 @@ class ChainExecutor:
             full_output = full_output or f"خطا در تولید پاسخ: {str(e)}"
             yield {"type": "chunk", "content": full_output}
 
+        full_output = _strip_redundant_mid_conversation_greeting(full_output, history)
         output = _post_process_output(
             full_output, agent_key, agent_name, request.message
         )

@@ -1123,20 +1123,24 @@ Returns:
     ) -> str:
         """
         Ensure the output always includes a suggestions section.
-        If missing, generate contextual suggestions based on KB content or user query.
+        Only skip if there is already a valid block (header + at least one numbered line). Otherwise always append.
         """
-        # Check if suggestions section already exists
-        suggestions_patterns = [
-            r"پیشنهادهای بعدی:",
-            r"Next actions:",
-            r"پیشنهادهای بعدی\s*:",
-            r"Next actions\s*:",
-        ]
+        def _has_valid_suggestions_block(text: str) -> bool:
+            if not text or not text.strip():
+                return False
+            header = re.search(r"پیشنهادهای بعدی\s*:|Next actions\s*:", text, re.IGNORECASE)
+            if not header:
+                return False
+            after = text[header.end():].strip()
+            return bool(re.search(r"^[\d۱۲۳۴۵۶۷۸۹۰]+\s*\)", after, re.MULTILINE))
 
-        has_suggestions = any(re.search(pattern, output, re.IGNORECASE) for pattern in suggestions_patterns)
-
-        if has_suggestions:
+        if _has_valid_suggestions_block(output):
             return output
+
+        # Strip trailing "پیشنهادهای بعدی:" with no numbered list so we don't duplicate header
+        strip_header = re.search(r"\n\s*پیشنهادهای بعدی\s*:.*$|\n\s*Next actions\s*:.*$", output, re.IGNORECASE | re.DOTALL)
+        if strip_header and not re.search(r"[\d۱۲۳۴۵۶۷۸۹۰]+\s*\)", strip_header.group(0)):
+            output = output[: strip_header.start()].rstrip()
 
         # Generate contextual suggestions based on KB content and conversation flow
         suggestions = []
