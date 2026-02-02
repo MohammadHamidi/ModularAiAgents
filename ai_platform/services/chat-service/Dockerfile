@@ -1,6 +1,7 @@
 # Use standard tag for better compatibility and caching
 # If you encounter TLS handshake timeouts, see DOCKER_BUILD_TROUBLESHOOTING.md
-FROM python:3.11-slim
+# --platform=linux/amd64 avoids "No matching distribution for pydantic" on ARM build nodes
+FROM --platform=linux/amd64 python:3.11-slim-bookworm
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
@@ -20,8 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
 # =============================================================================
 COPY services/chat-service/requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip && \
-    pip install --default-timeout=100 --retries 5 -r /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --default-timeout=120 --retries 5 -r /app/requirements.txt
 
 # =============================================================================
 # LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
