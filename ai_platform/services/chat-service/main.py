@@ -178,6 +178,7 @@ safiranayeha_client: SafiranayehaClient | None = None  # Safiranayeha API client
 path_router: PathRouter | None = None  # Path-to-agent router
 chain_executor = None  # LangChain chain-based executor (when EXECUTOR_MODE=langchain_chain)
 EXECUTOR_MODE = os.getenv("EXECUTOR_MODE", "pydantic_ai")  # pydantic_ai | langchain_chain
+CHAT_UI_CONFIG: Dict[str, Any] = {}  # chat_ui section from main agent_config.yaml (set at startup)
 
 def register_agent(key: str, agent_class, config: dict, full_config=None):
     """Register agent with configuration"""
@@ -192,7 +193,7 @@ def register_agent(key: str, agent_class, config: dict, full_config=None):
 
 @app.on_event("startup")
 async def startup():
-    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor
+    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor, CHAT_UI_CONFIG
 
     logging.info("Starting chat service initialization...")
 
@@ -260,6 +261,8 @@ async def startup():
         logging.error(f"Failed to load agent config from {config_file}: {e}")
         logging.info("Falling back to default config")
         agent_full_config = load_agent_config("agent_config.yaml")
+
+    CHAT_UI_CONFIG = getattr(agent_full_config, "chat_ui", None) or {}
 
     # Get model config from loaded configuration
     model_config = agent_full_config.model_config
@@ -698,12 +701,28 @@ async def initialize_chat(request: ChatInitRequest):
     }
     ```
     """
-    global safiranayeha_client, path_router
+    global safiranayeha_client, path_router, CHAT_UI_CONFIG
 
     try:
+        # No Safiranayeha param: open chat with intro (session + default agent + welcome from config)
+        if not request.encrypted_param and not request.user_id:
+            session_id = uuid.uuid4()
+            agent_key = "guest_faq"
+            if agent_key not in AGENTS:
+                agent_key = next((k for k in AGENTS if k != "orchestrator"), "guest_faq")
+            logging.info(f"Chat init without param: new session {session_id}, agent_key={agent_key}")
+            intro_messages = CHAT_UI_CONFIG.get("intro_messages") or {}
+            show_intro = CHAT_UI_CONFIG.get("show_intro_on_open", True)
+            welcome_message = (intro_messages.get(agent_key) or intro_messages.get("default", "")) if show_intro else None
+            return ChatInitResponse(
+                session_id=str(session_id),
+                agent_key=agent_key,
+                user_data=None,
+                welcome_message=welcome_message or None,
+            )
+
         # Step 1: Extract UserId and Path
         if request.encrypted_param:
-            # Decrypt parameter
             logging.info("Decrypting Safiranayeha parameter...")
             try:
                 decrypted_data = decrypt_safiranayeha_param(request.encrypted_param)
@@ -714,11 +733,8 @@ async def initialize_chat(request: ChatInitRequest):
                 logging.error(f"Failed to decrypt parameter: {e}")
                 raise HTTPException(400, f"Invalid encrypted parameter: {str(e)}")
         else:
-            # Use direct parameters
             user_id = request.user_id
             path = request.path or '/'
-            if not user_id:
-                raise HTTPException(400, "Either encrypted_param or user_id must be provided")
 
         # Step 2: Fetch user data from Safiranayeha API
         logging.info(f"Fetching user data for user_id={user_id}...")
@@ -727,15 +743,12 @@ async def initialize_chat(request: ChatInitRequest):
             logging.info(f"Fetched user data with {len(user_data_raw)} fields")
         except Exception as e:
             logging.error(f"Failed to fetch user data: {e}")
-            # Continue with empty user data
             user_data_raw = {}
             logging.warning("Continuing with empty user data")
 
         # Step 3: Determine agent based on path
         agent_key = path_router.get_agent_for_path(path)
         logging.info(f"Mapped path '{path}' to agent '{agent_key}'")
-
-        # Verify agent exists
         if agent_key not in AGENTS:
             logging.warning(f"Agent '{agent_key}' not found, falling back to guest_faq")
             agent_key = "guest_faq"
@@ -748,8 +761,6 @@ async def initialize_chat(request: ChatInitRequest):
         if user_data_raw:
             normalized_user_data = safiranayeha_client.normalize_user_data_for_context(user_data_raw)
             logging.info(f"Normalized {len(normalized_user_data)} user data fields")
-
-            # Save to context manager
             try:
                 await context_manager.merge_context(
                     session_id,
@@ -759,23 +770,22 @@ async def initialize_chat(request: ChatInitRequest):
                 logging.info(f"Saved user context for session {session_id}")
             except Exception as e:
                 logging.error(f"Failed to save user context: {e}")
-                # Continue anyway
 
-        # Step 6: Generate welcome message (optional)
-        welcome_message = None
-        # You can customize this based on agent_key
-        if agent_key == "guest_faq":
-            welcome_message = "سلام! خوش اومدی به سفیران آیه‌ها 🌟 چطور می‌تونم کمکت کنم؟"
-        elif agent_key == "action_expert":
-            welcome_message = "سلام! برای تولید محتوای کنش‌ها آماده‌ام. چه کنشی مد نظرته؟"
-        elif agent_key == "journey_register":
-            welcome_message = "سلام! بیا مسیر سفیران رو با هم طی کنیم. از کجا شروع کنیم؟"
-        elif agent_key == "rewards_invite":
-            welcome_message = "سلام! برای اطلاعات امتیازات و دعوت‌ها اینجام. چه چیزی می‌خوای بدونی؟"
-        else:
-            welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
+        # Step 6: Welcome message from chat_ui intro_messages or fallback
+        intro_messages = CHAT_UI_CONFIG.get("intro_messages") or {}
+        welcome_message = intro_messages.get(agent_key) or intro_messages.get("default")
+        if welcome_message is None:
+            if agent_key == "guest_faq":
+                welcome_message = "سلام! خوش اومدی به سفیران آیه‌ها 🌟 چطور می‌تونم کمکت کنم؟"
+            elif agent_key == "action_expert":
+                welcome_message = "سلام! برای تولید محتوای کنش‌ها آماده‌ام. چه کنشی مد نظرته؟"
+            elif agent_key == "journey_register":
+                welcome_message = "سلام! بیا مسیر سفیران رو با هم طی کنیم. از کجا شروع کنیم؟"
+            elif agent_key == "rewards_invite":
+                welcome_message = "سلام! برای اطلاعات امتیازات و دعوت‌ها اینجام. چه چیزی می‌خوای بدونی؟"
+            else:
+                welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
 
-        # Step 7: Return response
         return ChatInitResponse(
             session_id=str(session_id),
             agent_key=agent_key,
@@ -898,17 +908,30 @@ async def chat(agent_key: str, request: AgentRequest):
                 logging.error(f"Database connection error when saving user_data for session {sid}: {e}")
                 logging.warning("User data not persisted due to database error, but continuing with request")
 
-    # Load session history
+    # Load session history and metadata
     try:
         session = await session_manager.get_session(sid)
         history = session["messages"] if session else []
+        metadata = (session.get("metadata") or {}) if session else {}
         logging.info(f"Loaded history for session {sid}: {len(history)} messages")
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
-        # Continue with empty history if database is unavailable
-        # This allows the service to work even if database has temporary issues
         history = []
+        metadata = {}
         logging.warning("Continuing with empty history due to database error")
+
+    # Build session_state for suggestion lifecycle (user_mode, suggestion_click_count, last_message_from_suggestion)
+    session_state = {
+        "user_mode": metadata.get("user_mode", "guided"),
+        "suggestion_click_count": metadata.get("suggestion_click_count", 0),
+        "last_message_from_suggestion": metadata.get("last_message_from_suggestion", False),
+        "_chat_ui_config": CHAT_UI_CONFIG,
+    }
+    if getattr(request, "from_suggestion", False):
+        session_state["suggestion_click_count"] = session_state.get("suggestion_click_count", 0) + 1
+        session_state["last_message_from_suggestion"] = True
+        if metadata.get("last_message_from_suggestion") is True:
+            session_state["user_mode"] = "free"
 
     # Load shared context (includes any user_data just saved)
     shared_context = {}
@@ -925,9 +948,9 @@ async def chat(agent_key: str, request: AgentRequest):
             normalized_user_data = normalize_user_data(request.user_data)
             shared_context.update(normalized_user_data)
 
-    # Process with executor (history + structured shared context)
+    # Process with executor (history + structured shared context + session_state)
     request.session_id = str(sid)
-    response = await executor.process(request, history, shared_context, agent_key=agent_key)
+    response = await executor.process(request, history, shared_context, agent_key=agent_key, session_state=session_state)
 
     # Debug log: after agent processing, before persistence
     _agent_debug_log(
@@ -954,12 +977,18 @@ async def chat(agent_key: str, request: AgentRequest):
     
     # Save session (agent should return updated history in metadata)
     new_history = response.metadata.get("history", history)
+    final_metadata = {
+        "last_agent": agent_key,
+        "user_mode": response.metadata.get("user_mode", session_state.get("user_mode", "guided")),
+        "suggestion_click_count": response.metadata.get("suggestion_click_count", session_state.get("suggestion_click_count", 0)),
+        "last_message_from_suggestion": response.metadata.get("last_message_from_suggestion", session_state.get("last_message_from_suggestion", False)),
+    }
     try:
         await session_manager.upsert_session(
-            sid, 
-            new_history, 
+            sid,
+            new_history,
             agent_key,
-            metadata={"last_agent": agent_key}
+            metadata=final_metadata,
         )
     except Exception as e:
         logging.error(f"Database connection error when saving session {sid}: {e}")
@@ -1506,16 +1535,28 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     else:
         sid = uuid.uuid4()
     
-    # Load session history and context (same as regular endpoint)
+    # Load session history, metadata, and context (same as regular endpoint)
     try:
         session = await session_manager.get_session(sid)
         history = session["messages"] if session else []
+        metadata = (session.get("metadata") or {}) if session else {}
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
-        # Continue with empty history if database is unavailable
-        # This allows the service to work even if database has temporary issues
         history = []
+        metadata = {}
         logging.warning("Continuing with empty history due to database error")
+
+    session_state = {
+        "user_mode": metadata.get("user_mode", "guided"),
+        "suggestion_click_count": metadata.get("suggestion_click_count", 0),
+        "last_message_from_suggestion": metadata.get("last_message_from_suggestion", False),
+        "_chat_ui_config": CHAT_UI_CONFIG,
+    }
+    if getattr(request, "from_suggestion", False):
+        session_state["suggestion_click_count"] = session_state.get("suggestion_click_count", 0) + 1
+        session_state["last_message_from_suggestion"] = True
+        if metadata.get("last_message_from_suggestion") is True:
+            session_state["user_mode"] = "free"
     
     shared_context = {}
     if request.use_shared_context:
@@ -1545,7 +1586,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             if use_real_stream:
                 logging.info("Using real LLM streaming (process_stream)")
                 try:
-                    async for event in executor.process_stream(request, history, shared_context, agent_key=agent_key):
+                    async for event in executor.process_stream(request, history, shared_context, agent_key=agent_key, session_state=session_state):
                         if event.get("type") == "chunk":
                             content = event.get("content", "")
                             if content:
@@ -1565,7 +1606,7 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             else:
                 # Fallback: full response then replay (Pydantic AI or no process_stream)
                 try:
-                    response = await executor.process(request, history, shared_context, agent_key=agent_key)
+                    response = await executor.process(request, history, shared_context, agent_key=agent_key, session_state=session_state)
                     if not response:
                         logging.error("❌ Agent.process() returned None!")
                         yield f"data: {json.dumps({'error': 'Agent returned no response'})}\n\n"
@@ -1590,16 +1631,19 @@ async def chat_stream(agent_key: str, request: AgentRequest):
 
             if response:
                 try:
-                    new_history = getattr(response, "metadata", {}) or {}
-                    if isinstance(new_history, dict):
-                        new_history = new_history.get("history", history)
-                    else:
-                        new_history = history
+                    resp_meta = getattr(response, "metadata", {}) or {}
+                    new_history = resp_meta.get("history", history) if isinstance(resp_meta, dict) else history
+                    final_metadata = {
+                        "last_agent": agent_key,
+                        "user_mode": resp_meta.get("user_mode", session_state.get("user_mode", "guided")),
+                        "suggestion_click_count": resp_meta.get("suggestion_click_count", session_state.get("suggestion_click_count", 0)),
+                        "last_message_from_suggestion": resp_meta.get("last_message_from_suggestion", session_state.get("last_message_from_suggestion", False)),
+                    }
                     await session_manager.upsert_session(
                         sid,
                         new_history,
                         agent_key,
-                        metadata={"last_agent": agent_key}
+                        metadata=final_metadata,
                     )
                     context_updates = getattr(response, "context_updates", None) or {}
                     if context_updates:

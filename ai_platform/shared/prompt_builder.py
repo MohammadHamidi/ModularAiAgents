@@ -41,6 +41,7 @@ def build_system_prompt(
     last_user_messages: List[Dict[str, Any]],
     executor_mode: str = "pydantic_ai",
     agent_key: Optional[str] = None,
+    session_state: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Build context-aware system prompt using configuration.
@@ -54,6 +55,7 @@ def build_system_prompt(
         last_user_messages: Recent messages [{"role": "user"|"assistant", "content": str}, ...]
         executor_mode: "pydantic_ai" or "langchain_chain" for prompt variant
         agent_key: Agent key for few-shot example selection (e.g. guest_faq, action_expert)
+        session_state: Optional dict with user_mode ("guided" | "free") for Guided/Free prompt line
 
     Returns:
         Full system prompt string
@@ -146,6 +148,19 @@ def build_system_prompt(
         "🔄 Vary how you start replies. Do not start every answer with «احسنت به این همت». "
         "Use ببین، راستی، خب، یا مستقیم برو سراغ مطلب؛ فقط گاهی از احسنت استفاده کن."
     )
+
+    # Guided vs Free mode: reduce bot-like behavior and prioritize user intent
+    if session_state:
+        user_mode = session_state.get("user_mode", "guided")
+        if user_mode == "free":
+            parts.append(
+                "🎯 کاربر در گفتگوی آزاد است. مثل یک مکالمه طبیعی پاسخ بده؛ "
+                "از اشاره مکرر به کنش/تگ/موضوع به‌صورت لیبل خودداری کن و به نیت کاربر اولویت بده."
+            )
+        else:
+            parts.append(
+                "🎯 کاربر در حالت راهنماست؛ پیشنهادها برای گرم کردن گفتگو هستند. پاسخ طبیعی بده."
+            )
 
     return "\n\n".join(parts)
 

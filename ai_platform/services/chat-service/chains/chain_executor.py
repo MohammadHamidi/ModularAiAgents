@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from shared.base_agent import AgentRequest, AgentResponse
 from shared.prompt_builder import build_context_summary
+from shared.suggestion_lifecycle import should_show_suggestions, get_updated_session_metadata
 
 from chains.router_chain import RouterChain
 from chains.specialist_chain import SpecialistChain
@@ -247,6 +248,7 @@ class ChainExecutor:
         history: Optional[List[Dict[str, Any]]] = None,
         shared_context: Optional[Dict[str, Any]] = None,
         agent_key: str = "unknown",
+        session_state: Optional[Dict[str, Any]] = None,
     ) -> AgentResponse:
         """
         Process request using chain-based pipeline.
@@ -255,6 +257,8 @@ class ChainExecutor:
         start = time.time()
         history = history or []
         shared_context = shared_context or {}
+        session_state = session_state or {}
+        chat_ui_config = session_state.get("_chat_ui_config") or {}
 
         # Resolve agent_key via router if orchestrator
         if agent_key == "orchestrator":
@@ -317,8 +321,16 @@ class ChainExecutor:
         output = _post_process_output(
             output, agent_key, agent_name, request.message
         )
-        # Ensure follow-up suggestions block so the UI can show clickable suggestions
-        output = _ensure_suggestions_section(output, request.message)
+
+        # Suggestion lifecycle: show suggestions only in guided mode within limits
+        show_suggestions, transition_message, switch_to_free = should_show_suggestions(
+            session_state, history, chat_ui_config
+        )
+        if transition_message and (transition_message not in output):
+            output = output.rstrip() + "\n\n" + transition_message
+        if show_suggestions:
+            output = _ensure_suggestions_section(output, request.message)
+        session_meta = get_updated_session_metadata(session_state, switch_to_free)
 
         # Build updated history
         now = datetime.datetime.utcnow().isoformat()
@@ -347,6 +359,7 @@ class ChainExecutor:
                 "history": updated_history,
                 "agent_key": agent_key,
                 "executor": "langchain_chain",
+                **session_meta,
             },
             context_updates=context_updates,
         )
@@ -357,6 +370,7 @@ class ChainExecutor:
         history: Optional[List[Dict[str, Any]]] = None,
         shared_context: Optional[Dict[str, Any]] = None,
         agent_key: str = "unknown",
+        session_state: Optional[Dict[str, Any]] = None,
     ):
         """
         Process request with real LLM streaming (async generator).
@@ -365,6 +379,8 @@ class ChainExecutor:
         """
         history = history or []
         shared_context = shared_context or {}
+        session_state = session_state or {}
+        chat_ui_config = session_state.get("_chat_ui_config") or {}
 
         if agent_key == "orchestrator":
             hist_summary = ""
@@ -424,7 +440,14 @@ class ChainExecutor:
         output = _post_process_output(
             full_output, agent_key, agent_name, request.message
         )
-        output = _ensure_suggestions_section(output, request.message)
+        show_suggestions, transition_message, switch_to_free = should_show_suggestions(
+            session_state, history, chat_ui_config
+        )
+        if transition_message and (transition_message not in output):
+            output = output.rstrip() + "\n\n" + transition_message
+        if show_suggestions:
+            output = _ensure_suggestions_section(output, request.message)
+        session_meta = get_updated_session_metadata(session_state, switch_to_free)
 
         if len(output) > len(full_output):
             yield {"type": "chunk", "content": output[len(full_output):]}
@@ -451,6 +474,7 @@ class ChainExecutor:
                 "history": updated_history,
                 "agent_key": agent_key,
                 "executor": "langchain_chain",
+                **session_meta,
             },
             "context_updates": context_updates,
         }

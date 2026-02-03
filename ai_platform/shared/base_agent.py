@@ -15,6 +15,7 @@ class AgentRequest(BaseModel):
     context: Dict[str, Any] = {}  # Request-level context
     use_shared_context: bool = True  # Whether to load shared context
     user_data: Dict[str, Any] = {}  # User data from app (saved immediately)
+    from_suggestion: bool = False  # True when user sent message by clicking a suggestion
 
 class AgentResponse(BaseModel):
     session_id: str

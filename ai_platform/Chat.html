@@ -432,16 +432,17 @@
                 this.sessionId = null;
             }
 
-            async sendMessage(message, streaming = true) {
+            async sendMessage(message, streaming = true, fromSuggestion = false) {
                 const agentKey = this.agentKey || 'orchestrator';
                 const endpoint = streaming 
                     ? `${this.baseUrl}/chat/${agentKey}/stream` 
                     : `${this.baseUrl}/chat/${agentKey}`;
                 const payload = {
-                        message: message,
+                    message: message,
                     session_id: this.sessionId || undefined,
-                        use_shared_context: true,
-                    user_data: this.userData || undefined
+                    use_shared_context: true,
+                    user_data: this.userData || undefined,
+                    from_suggestion: fromSuggestion
                 };
 
                 const response = await fetch(endpoint, {
@@ -559,18 +560,12 @@
         // Initialize with base URL (agent will be set dynamically)
         const aiClient = new AIClient(baseUrl);
 
-        // Initialize chat from Safiranayeha encrypted parameter
+        // Initialize chat: with Safiranayeha param or without (intro on open)
         async function initializeChatFromSafiranayeha() {
             const encryptedParam = getEncryptedParamFromURL();
             
-            if (!encryptedParam) {
-                // No encrypted parameter - use default behavior
-                console.debug('No Safiranayeha parameter found, using default agent');
-                return false; // Indicates no initialization happened
-            }
-            
             try {
-                // Show loading state
+                // Show loading state when we will call init
                 chatContainer.innerHTML = `
                     <div class="flex items-center justify-center h-full">
                         <div class="text-center">
@@ -579,20 +574,16 @@
                         </div>
                     </div>
                 `;
-                
-                // Disable input during initialization
                 messageInput.disabled = true;
                 sendButton.disabled = true;
                 
-                // Call init endpoint
+                const body = encryptedParam
+                    ? { encrypted_param: encryptedParam }
+                    : {};
                 const response = await fetch(`${baseUrl}/chat/init`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        encrypted_param: encryptedParam
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
                 });
                 
                 if (!response.ok) {
@@ -720,7 +711,7 @@
         //     updateSendButton();
         // });
 
-        async function sendMessage() {
+        async function sendMessage(fromSuggestion = false) {
             const message = messageInput.value.trim();
             if (!message) return;
 
@@ -749,7 +740,7 @@
             sendButton.disabled = true;
 
             try {
-                const streamResponse = await aiClient.sendMessage(message, true);
+                const streamResponse = await aiClient.sendMessage(message, true, fromSuggestion);
                 let fullText = '';
                 let hasReceivedData = false;
                 
@@ -831,7 +822,7 @@
                                 messageInput.value = suggestion;
                                 messageInput.focus();
                                 autoResizeTextarea();
-                                sendMessage();
+                                sendMessage(true);
                             });
                         });
                     }
@@ -843,7 +834,7 @@
                 messageDiv.style.display = 'block';
                 
                 try {
-                    const response = await aiClient.sendMessage(message, false);
+                    const response = await aiClient.sendMessage(message, false, fromSuggestion);
                     const fullText = response.output || '';
                     const suggestionsMatch = fullText.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
                     if (suggestionsMatch) {
@@ -867,7 +858,7 @@
                                     messageInput.value = btn.getAttribute('data-suggestion');
                                     messageInput.focus();
                                     autoResizeTextarea();
-                                    sendMessage();
+                                    sendMessage(true);
                                 });
                             });
                         } else {

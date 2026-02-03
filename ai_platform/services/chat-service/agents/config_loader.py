@@ -49,6 +49,9 @@ class AgentConfig:
     # Privacy
     privacy: Dict[str, Any]
 
+    # Chat UI & suggestion lifecycle (optional, from main agent_config.yaml)
+    chat_ui: Dict[str, Any] = field(default_factory=dict)
+
     # Experimental (optional)
     experimental: Dict[str, Any] = field(default_factory=dict)
 
@@ -208,6 +211,7 @@ class ConfigLoader:
             recent_messages_context=data.get('recent_messages_context', {}),
             model_config=data.get('model_config', {}),
             privacy=data.get('privacy', {}),
+            chat_ui=data.get('chat_ui', {}),
             experimental=data.get('experimental', {}),
         )
 

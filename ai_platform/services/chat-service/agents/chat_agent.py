@@ -13,6 +13,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
 from shared.prompt_builder import build_system_prompt, build_context_summary
+from shared.suggestion_lifecycle import should_show_suggestions, get_updated_session_metadata
 from agents.litellm_compat import create_litellm_compatible_client, create_openai_client
 from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
 from monitoring import ExecutionTrace, trace_collector
@@ -546,6 +547,7 @@ Returns:
         user_info: Dict[str, Any],
         last_user_messages: List[Dict[str, Any]],
         agent_key: str = "unknown",
+        session_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Build a context-aware system prompt using shared prompt builder."""
         return build_system_prompt(
@@ -554,6 +556,7 @@ Returns:
             last_user_messages,
             executor_mode="pydantic_ai",
             agent_key=agent_key,
+            session_state=session_state,
         )
     
     def _format_numbered_list_newlines(self, text: str) -> str:
@@ -725,9 +728,11 @@ Returns:
         history: Optional[List[Dict[str, Any]]] = None,
         shared_context: Optional[Dict[str, Any]] = None,
         agent_key: str = "unknown",
+        session_state: Optional[Dict[str, Any]] = None,
     ) -> AgentResponse:
         # Start timing for performance tracking
         start_time = time.time()
+        session_state = session_state or {}
 
         # Initialize trace
         agent_name = getattr(self.agent_config, 'agent_name', self.config.name)
@@ -758,11 +763,12 @@ Returns:
             msg for msg in (history or [])[-count*3:] if msg.get("role") == "user"
         ][-count:]
 
-        # Build dynamic system prompt with user context
+        # Build dynamic system prompt with user context (and user_mode for Guided/Free)
         dynamic_system_prompt = self._build_dynamic_system_prompt(
             shared_context or {},
             last_user_messages,
             agent_key=agent_key,
+            session_state=session_state,
         )
 
         # Capture system prompt in trace
@@ -915,15 +921,23 @@ Returns:
         if assistant_output != original_output:
             trace.post_processing_applied.append("convert_suggestions_perspective")
 
-        # Post-process: Ensure suggestions section is always present
-        original_output = assistant_output
-        assistant_output = self._ensure_suggestions_section(
-            assistant_output,
-            deps.tool_results,
-            request.message
+        # Suggestion lifecycle: show suggestions only in guided mode within limits
+        chat_ui_config = session_state.get("_chat_ui_config") or {}
+        show_suggestions, transition_message, switch_to_free = should_show_suggestions(
+            session_state, history or [], chat_ui_config
         )
-        if assistant_output != original_output:
-            trace.post_processing_applied.append("ensure_suggestions_section")
+        if transition_message and (transition_message not in assistant_output):
+            assistant_output = assistant_output.rstrip() + "\n\n" + transition_message
+        if show_suggestions:
+            original_output = assistant_output
+            assistant_output = self._ensure_suggestions_section(
+                assistant_output,
+                deps.tool_results,
+                request.message
+            )
+            if assistant_output != original_output:
+                trace.post_processing_applied.append("ensure_suggestions_section")
+        session_meta = get_updated_session_metadata(session_state, switch_to_free)
 
         # Check if routing to a specialist agent occurred
         # If so, use the specialist's updated history instead of creating new one
@@ -971,11 +985,12 @@ Returns:
         # Add updates from tool calls
         context_updates_combined.update(pending_updates)
 
-        # Build metadata
-        metadata: Dict[str, Any] = {
+        # Build metadata (include session_meta for user_mode, suggestion_click_count, etc.)
+        metadata = get_updated_session_metadata(session_state, switch_to_free)
+        metadata.update({
             "model": self.config.model,
             "history": updated_history,
-        }
+        })
 
         # Finalize trace
         trace.final_response = assistant_output

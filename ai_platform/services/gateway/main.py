@@ -92,7 +92,8 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     user_data: Optional[Dict[str, Any]] = None
     use_shared_context: bool = True
-    
+    from_suggestion: bool = False
+
     class Config:
         schema_extra = {
             "example": {

@@ -432,12 +432,13 @@
                 this.sessionId = null;
             }
 
-            async sendMessage(message, streaming = true) {
+            async sendMessage(message, streaming = true, fromSuggestion = false) {
                 const endpoint = streaming ? `${this.baseUrl}/stream` : this.baseUrl;
                 const payload = {
                     message: message,
                     session_id: this.sessionId || undefined,
-                    user_data: this.userData || undefined
+                    user_data: this.userData || undefined,
+                    from_suggestion: fromSuggestion
                 };
 
                 const response = await fetch(endpoint, {
@@ -576,7 +577,7 @@
             updateSendButton();
         });
 
-        async function sendMessage() {
+        async function sendMessage(fromSuggestion = false) {
             const message = messageInput.value.trim();
             if (!message) return;
 
@@ -605,7 +606,7 @@
             sendButton.disabled = true;
 
             try {
-                const streamResponse = await aiClient.sendMessage(message, true);
+                const streamResponse = await aiClient.sendMessage(message, true, fromSuggestion);
                 let fullText = '';
                 let hasReceivedData = false;
 
@@ -687,7 +688,7 @@
                                 messageInput.value = suggestion;
                                 messageInput.focus();
                                 autoResizeTextarea();
-                                sendMessage();
+                                sendMessage(true);
                             });
                         });
                     }
@@ -699,7 +700,7 @@
                 messageDiv.style.display = 'block';
                 
                 try {
-                    const response = await aiClient.sendMessage(message, false);
+                    const response = await aiClient.sendMessage(message, false, fromSuggestion);
                     const fullText = response.output || '';
                     const suggestionsMatch = fullText.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
                     if (suggestionsMatch) {
@@ -723,7 +724,7 @@
                                     messageInput.value = btn.getAttribute('data-suggestion');
                                     messageInput.focus();
                                     autoResizeTextarea();
-                                    sendMessage();
+                                    sendMessage(true);
                                 });
                             });
                         } else {
