@@ -81,6 +81,15 @@ ICON_PATH = find_static_file("Icon.png")
 FAVICON_PATH = find_static_file("favicon.ico")
 MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 
+# Mount static files directory for CSS and other assets
+# Try Docker path first, then local development path
+static_dir_docker = Path("/app/static")
+static_dir_local = Path(__file__).parent.parent.parent / "static"
+STATIC_DIR = static_dir_docker if static_dir_docker.exists() else static_dir_local
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 # =============================================================================
 # Pydantic Models for API Documentation

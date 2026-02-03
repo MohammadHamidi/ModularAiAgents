@@ -1,0 +1,16 @@
+{
+  "name": "ai-platform-ui",
+  "version": "1.0.0",
+  "description": "سفیران آیه‌ها - UI assets with Tailwind CSS",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./static/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./static/css/tailwind.css --watch",
+    "dev": "npm run watch:css"
+  },
+  "keywords": ["tailwind", "css", "ui"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "tailwindcss": "^3.4.1"
+  }
+}
