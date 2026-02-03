@@ -44,6 +44,9 @@ COPY Icon.png /app/Icon.png
 COPY favicon.ico /app/favicon.ico
 COPY monitoring_dashboard.html /app/monitoring_dashboard.html
 
+# Copy static assets (compiled CSS, fonts, etc.)
+COPY static /app/static
+
 # Set working directory to service directory
 WORKDIR /app/services/gateway
 
