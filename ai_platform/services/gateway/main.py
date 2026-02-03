@@ -1,6 +1,7 @@
 import os
 import json
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -89,6 +90,12 @@ STATIC_DIR = static_dir_docker if static_dir_docker.exists() else static_dir_loc
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    """Return 422 with clear validation errors so clients can fix request payload."""
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 # =============================================================================

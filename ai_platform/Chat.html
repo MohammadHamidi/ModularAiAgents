@@ -432,13 +432,18 @@
                 const endpoint = streaming 
                     ? `${this.baseUrl}/chat/${agentKey}/stream` 
                     : `${this.baseUrl}/chat/${agentKey}`;
+                // Build payload to match API: message required; optional fields only when set
                 const payload = {
-                    message: message,
-                    session_id: this.sessionId || undefined,
+                    message: String(message || ''),
                     use_shared_context: true,
-                    user_data: this.userData || undefined,
-                    from_suggestion: fromSuggestion
+                    from_suggestion: Boolean(fromSuggestion)
                 };
+                if (this.sessionId && typeof this.sessionId === 'string') {
+                    payload.session_id = this.sessionId;
+                }
+                if (this.userData != null && typeof this.userData === 'object' && !Array.isArray(this.userData)) {
+                    payload.user_data = this.userData;
+                }
 
                 const response = await fetch(endpoint, {
                     method: 'POST',
@@ -447,7 +452,16 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    let errMsg = `HTTP error! status: ${response.status}`;
+                    if (response.status === 422) {
+                        try {
+                            const errBody = await response.json();
+                            if (errBody.detail && Array.isArray(errBody.detail)) {
+                                errMsg += ' - ' + errBody.detail.map(e => (e.loc && e.msg) ? e.loc.join('.') + ': ' + e.msg : e.msg).join('; ');
+                            }
+                        } catch (_) {}
+                    }
+                    throw new Error(errMsg);
                 }
                 
                 if (streaming) {
