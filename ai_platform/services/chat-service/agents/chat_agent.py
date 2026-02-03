@@ -13,7 +13,6 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from shared.base_agent import BaseAgent, AgentConfig, AgentRequest, AgentResponse
 from shared.prompt_builder import build_system_prompt, build_context_summary
-from shared.suggestion_lifecycle import should_show_suggestions, get_updated_session_metadata
 from agents.litellm_compat import create_litellm_compatible_client, create_openai_client
 from agents.config_loader import AgentConfig as FullAgentConfig, UserDataField
 from monitoring import ExecutionTrace, trace_collector
@@ -346,32 +345,6 @@ Returns:
                 return result
             konesh_tool.__doc__ = full_doc
             self.agent.tool(konesh_tool)
-
-        elif tool.name == "query_konesh_csv":
-            async def konesh_csv_tool(
-                ctx: RunContext[ChatDependencies],
-                query: str,
-                bestar_anjam: Optional[str] = None,
-                sathe_sakhti: Optional[str] = None,
-                koneshgar: Optional[str] = None,
-                hashtags: Optional[str] = None,
-                vizhe: Optional[bool] = None,
-                limit: int = 15
-            ) -> str:
-                """Query full کنش CSV by بستر انجام, سطح سختی, کنش‌گر, هشتگ‌ها, ویژه. Use vizhe=True for کنش ویژه only."""
-                result = await tool_ref.execute(
-                    query=query,
-                    bestar_anjam=bestar_anjam,
-                    sathe_sakhti=sathe_sakhti,
-                    koneshgar=koneshgar,
-                    hashtags=hashtags,
-                    vizhe=vizhe,
-                    limit=limit
-                )
-                ctx.deps.tool_results[tool_ref.name] = result
-                return result
-            konesh_csv_tool.__doc__ = full_doc
-            self.agent.tool(konesh_csv_tool)
             
         elif tool.name == "route_to_agent":
             # AgentRouterTool uses run() method, not execute()
@@ -547,7 +520,6 @@ Returns:
         user_info: Dict[str, Any],
         last_user_messages: List[Dict[str, Any]],
         agent_key: str = "unknown",
-        session_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Build a context-aware system prompt using shared prompt builder."""
         return build_system_prompt(
@@ -556,22 +528,8 @@ Returns:
             last_user_messages,
             executor_mode="pydantic_ai",
             agent_key=agent_key,
-            session_state=session_state,
         )
     
-    def _format_numbered_list_newlines(self, text: str) -> str:
-        """
-        Put each numbered list item on its own line (Persian ۱. ۲. ۳. or English 1) 2) 3)).
-        So "۱. ... ۲. ... ۳. ..." on one line becomes separate lines.
-        """
-        if not text or not text.strip():
-            return text
-        # Persian digits: ۱ ۲ ۳ – newline before " N." or " N)"
-        text = re.sub(r"([^\n])\s+([۱۲۳۴۵۶۷۸۹۰]+[\.\)])\s+", r"\1\n\n\2 ", text)
-        # English digits: newline before " 2)" or " 2."
-        text = re.sub(r"([^\n])\s+(\d+)[\.\)]\s+", r"\1\n\n\2) ", text)
-        return text
-
     def _remove_unwanted_extra_text(self, output: str) -> str:
         """
         Remove unwanted extra explanatory text/paragraphs that LLM sometimes adds.
@@ -640,9 +598,6 @@ Returns:
         
         # Trim whitespace
         cleaned = cleaned.strip()
-        
-        # Put each numbered list item on its own line (Persian and English)
-        cleaned = self._format_numbered_list_newlines(cleaned)
         
         # Reattach suggestions section if it existed
         if suggestions_section:
@@ -728,11 +683,9 @@ Returns:
         history: Optional[List[Dict[str, Any]]] = None,
         shared_context: Optional[Dict[str, Any]] = None,
         agent_key: str = "unknown",
-        session_state: Optional[Dict[str, Any]] = None,
     ) -> AgentResponse:
         # Start timing for performance tracking
         start_time = time.time()
-        session_state = session_state or {}
 
         # Initialize trace
         agent_name = getattr(self.agent_config, 'agent_name', self.config.name)
@@ -763,12 +716,11 @@ Returns:
             msg for msg in (history or [])[-count*3:] if msg.get("role") == "user"
         ][-count:]
 
-        # Build dynamic system prompt with user context (and user_mode for Guided/Free)
+        # Build dynamic system prompt with user context
         dynamic_system_prompt = self._build_dynamic_system_prompt(
             shared_context or {},
             last_user_messages,
             agent_key=agent_key,
-            session_state=session_state,
         )
 
         # Capture system prompt in trace
@@ -921,23 +873,15 @@ Returns:
         if assistant_output != original_output:
             trace.post_processing_applied.append("convert_suggestions_perspective")
 
-        # Suggestion lifecycle: show suggestions only in guided mode within limits
-        chat_ui_config = session_state.get("_chat_ui_config") or {}
-        show_suggestions, transition_message, switch_to_free = should_show_suggestions(
-            session_state, history or [], chat_ui_config
+        # Post-process: Ensure suggestions section is always present
+        original_output = assistant_output
+        assistant_output = self._ensure_suggestions_section(
+            assistant_output,
+            deps.tool_results,
+            request.message
         )
-        if transition_message and (transition_message not in assistant_output):
-            assistant_output = assistant_output.rstrip() + "\n\n" + transition_message
-        if show_suggestions:
-            original_output = assistant_output
-            assistant_output = self._ensure_suggestions_section(
-                assistant_output,
-                deps.tool_results,
-                request.message
-            )
-            if assistant_output != original_output:
-                trace.post_processing_applied.append("ensure_suggestions_section")
-        session_meta = get_updated_session_metadata(session_state, switch_to_free)
+        if assistant_output != original_output:
+            trace.post_processing_applied.append("ensure_suggestions_section")
 
         # Check if routing to a specialist agent occurred
         # If so, use the specialist's updated history instead of creating new one
@@ -985,12 +929,11 @@ Returns:
         # Add updates from tool calls
         context_updates_combined.update(pending_updates)
 
-        # Build metadata (include session_meta for user_mode, suggestion_click_count, etc.)
-        metadata = get_updated_session_metadata(session_state, switch_to_free)
-        metadata.update({
+        # Build metadata
+        metadata: Dict[str, Any] = {
             "model": self.config.model,
             "history": updated_history,
-        })
+        }
 
         # Finalize trace
         trace.final_response = assistant_output
@@ -1138,24 +1081,20 @@ Returns:
     ) -> str:
         """
         Ensure the output always includes a suggestions section.
-        Only skip if there is already a valid block (header + at least one numbered line). Otherwise always append.
+        If missing, generate contextual suggestions based on KB content or user query.
         """
-        def _has_valid_suggestions_block(text: str) -> bool:
-            if not text or not text.strip():
-                return False
-            header = re.search(r"پیشنهادهای بعدی\s*:|Next actions\s*:", text, re.IGNORECASE)
-            if not header:
-                return False
-            after = text[header.end():].strip()
-            return bool(re.search(r"^[\d۱۲۳۴۵۶۷۸۹۰]+\s*\)", after, re.MULTILINE))
+        # Check if suggestions section already exists
+        suggestions_patterns = [
+            r"پیشنهادهای بعدی:",
+            r"Next actions:",
+            r"پیشنهادهای بعدی\s*:",
+            r"Next actions\s*:",
+        ]
 
-        if _has_valid_suggestions_block(output):
+        has_suggestions = any(re.search(pattern, output, re.IGNORECASE) for pattern in suggestions_patterns)
+
+        if has_suggestions:
             return output
-
-        # Strip trailing "پیشنهادهای بعدی:" with no numbered list so we don't duplicate header
-        strip_header = re.search(r"\n\s*پیشنهادهای بعدی\s*:.*$|\n\s*Next actions\s*:.*$", output, re.IGNORECASE | re.DOTALL)
-        if strip_header and not re.search(r"[\d۱۲۳۴۵۶۷۸۹۰]+\s*\)", strip_header.group(0)):
-            output = output[: strip_header.start()].rstrip()
 
         # Generate contextual suggestions based on KB content and conversation flow
         suggestions = []
@@ -1282,18 +1221,10 @@ Returns:
             converted = self._convert_to_user_perspective(suggestion)
             converted_suggestions.append(converted)
 
-        # Platform URL for suggestions that should open in browser (same as chain_executor)
-        platform_base_url = "https://safiranayeha.ir"
-
-        def _suggestion_line(label: str) -> str:
-            if "بریم پلتفرم" in label or "لیست کنش" in label:
-                return f"{label} | {platform_base_url}/"
-            return label
-
         # Format suggestions section
         suggestions_text = "\n\nپیشنهادهای بعدی:\n"
         for i, suggestion in enumerate(converted_suggestions, 1):
-            suggestions_text += f"{i}) {_suggestion_line(suggestion)}\n"
+            suggestions_text += f"{i}) {suggestion}\n"
 
         return output + suggestions_text
     

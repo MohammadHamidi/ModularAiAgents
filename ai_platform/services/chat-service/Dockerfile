@@ -1,8 +1,6 @@
-# Use a registry mirror for the base image when Docker Hub is unreachable (no daemon restart needed).
-# Override in Coolify build args: DOCKER_REGISTRY_MIRROR=focker.ir or docker.dockerme.ir etc.
-ARG DOCKER_REGISTRY_MIRROR=docker.iranserver.com
-# --platform=linux/amd64 avoids "No matching distribution for pydantic" on ARM build nodes.
-FROM --platform=linux/amd64 ${DOCKER_REGISTRY_MIRROR}/library/python:3.11-slim-bookworm
+# Use standard tag for better compatibility and caching
+# If you encounter TLS handshake timeouts, see DOCKER_BUILD_TROUBLESHOOTING.md
+FROM python:3.11-slim
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
@@ -20,24 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # =============================================================================
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
-# Use longer timeout (300s) to reduce retries; try PyPI first, then Runflare mirror on failure.
-# Set PIP_USE_MIRROR=1 in Coolify build args to use the mirror first (faster in some regions).
 # =============================================================================
-ARG PIP_USE_MIRROR=0
 COPY services/chat-service/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    if [ "$PIP_USE_MIRROR" = "1" ]; then \
-      pip install --no-cache-dir --default-timeout=300 --retries 10 \
-        -i "https://mirror-pypi.runflare.com/simple/" \
-        --trusted-host "mirror-pypi.runflare.com" \
-        -r /app/requirements.txt; \
-    else \
-      (pip install --no-cache-dir --default-timeout=300 --retries 5 -r /app/requirements.txt || \
-       pip install --no-cache-dir --default-timeout=300 --retries 10 \
-         -i "https://mirror-pypi.runflare.com/simple/" \
-         --trusted-host "mirror-pypi.runflare.com" \
-         -r /app/requirements.txt); \
-    fi
+RUN pip install --upgrade pip && \
+    pip install --default-timeout=100 --retries 5 -r /app/requirements.txt
 
 # =============================================================================
 # LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
@@ -47,10 +31,6 @@ COPY shared /app/shared
 
 # Copy QA examples for few-shot prompt injection
 COPY QA_EXAMPLES.md /app/QA_EXAMPLES.md
-
-# کنش CSV: Docker build may fail with Persian filenames in COPY. Mount at runtime
-# or set KONESH_CSV_PATH, e.g. in docker-compose: volumes: - ./کنش_های سفیران آیه_ها.csv:/app/konesh.csv
-# and env: KONESH_CSV_PATH=/app/konesh.csv
 
 # Copy service code
 COPY services/chat-service /app/services/chat-service

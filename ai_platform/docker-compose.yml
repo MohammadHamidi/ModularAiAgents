@@ -1,8 +1,22 @@
-# No local db service: use your existing PostgreSQL (set DATABASE_URL in .env or Coolify).
-# Internal URL (same network): postgresql+asyncpg://USER:PASSWORD@HOST:5432/DBNAME
-# Public URL (from outside):  postgresql+asyncpg://USER:PASSWORD@81.12.27.188:6363/DBNAME
-
 services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: aiplatform
+      POSTGRES_PASSWORD: aiplatform
+      POSTGRES_DB: aiplatform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiplatform -d aiplatform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   chat-service:
     build:
       context: .
@@ -11,16 +25,16 @@ services:
       # Build args can leak into image history and build logs.
       # All secrets must be in environment: section below (runtime only).
       # If Coolify passes secrets as build args, move them to runtime env vars.
-    # Optional: mount کنش CSV for query_konesh_csv (uncomment and set path to your CSV file)
-    # volumes:
-    #   - "./konesh_actions.csv:/app/konesh_actions.csv"
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       # =======================================================================
       # RUNTIME ENVIRONMENT VARIABLES (Secure - not in build history)
       # These are injected at container startup, not during build.
       # =======================================================================
-      # Database: set DATABASE_URL to your existing PostgreSQL (required)
-      DATABASE_URL: ${DATABASE_URL}
+      # Database: Uses local postgres if DATABASE_URL not set
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://aiplatform:aiplatform@db:5432/aiplatform}
       
       # LiteLLM Configuration
       LITELLM_API_KEY: ${LITELLM_API_KEY:-sk-or}
@@ -40,8 +54,6 @@ services:
       LIGHTRAG_PASSWORD: ${LIGHTRAG_PASSWORD:-}
       LIGHTRAG_API_KEY_HEADER_VALUE: ${LIGHTRAG_API_KEY_HEADER_VALUE}
       LIGHTRAG_BEARER_TOKEN: ${LIGHTRAG_BEARER_TOKEN:-}
-      # Path to کنش CSV (used if volume above is mounted as /app/konesh_actions.csv)
-      KONESH_CSV_PATH: ${KONESH_CSV_PATH:-/app/konesh_actions.csv}
     ports:
       - "8001:8001"
     healthcheck:
@@ -70,3 +82,6 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+volumes:
+  postgres_data:

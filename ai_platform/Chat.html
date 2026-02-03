@@ -6,10 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <title>هوش مصنوعی سفیران آیه ها</title>
-    <link rel="stylesheet" href="/static/css/tailwind.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
 
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
+
+        * {
+            font-family: 'Vazirmatn', sans-serif;
+        }
 
         /* Iframe-friendly full viewport */
         html, body {
@@ -199,17 +204,6 @@
         }
 
         .suggestion-btn:hover {
-            transform: translateX(-2px);
-            border-color: #3b82f6;
-            background-color: #eff6ff;
-        }
-
-        .suggestion-link {
-            text-decoration: none;
-            border: 1px solid transparent;
-            transition: all 0.2s;
-        }
-        .suggestion-link:hover {
             transform: translateX(-2px);
             border-color: #3b82f6;
             background-color: #eff6ff;
@@ -427,23 +421,17 @@
                 this.sessionId = null;
             }
 
-            async sendMessage(message, streaming = true, fromSuggestion = false) {
+            async sendMessage(message, streaming = true) {
                 const agentKey = this.agentKey || 'orchestrator';
                 const endpoint = streaming 
                     ? `${this.baseUrl}/chat/${agentKey}/stream` 
                     : `${this.baseUrl}/chat/${agentKey}`;
-                // Build payload to match API: message required; optional fields only when set
                 const payload = {
-                    message: String(message || ''),
-                    use_shared_context: true,
-                    from_suggestion: Boolean(fromSuggestion)
+                        message: message,
+                    session_id: this.sessionId || undefined,
+                        use_shared_context: true,
+                    user_data: this.userData || undefined
                 };
-                if (this.sessionId && typeof this.sessionId === 'string') {
-                    payload.session_id = this.sessionId;
-                }
-                if (this.userData != null && typeof this.userData === 'object' && !Array.isArray(this.userData)) {
-                    payload.user_data = this.userData;
-                }
 
                 const response = await fetch(endpoint, {
                     method: 'POST',
@@ -452,16 +440,7 @@
                 });
 
                 if (!response.ok) {
-                    let errMsg = `HTTP error! status: ${response.status}`;
-                    if (response.status === 422) {
-                        try {
-                            const errBody = await response.json();
-                            if (errBody.detail && Array.isArray(errBody.detail)) {
-                                errMsg += ' - ' + errBody.detail.map(e => (e.loc && e.msg) ? e.loc.join('.') + ': ' + e.msg : e.msg).join('; ');
-                            }
-                        } catch (_) {}
-                    }
-                    throw new Error(errMsg);
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
                 if (streaming) {
@@ -569,12 +548,18 @@
         // Initialize with base URL (agent will be set dynamically)
         const aiClient = new AIClient(baseUrl);
 
-        // Initialize chat: with Safiranayeha param or without (intro on open)
+        // Initialize chat from Safiranayeha encrypted parameter
         async function initializeChatFromSafiranayeha() {
             const encryptedParam = getEncryptedParamFromURL();
             
+            if (!encryptedParam) {
+                // No encrypted parameter - use default behavior
+                console.debug('No Safiranayeha parameter found, using default agent');
+                return false; // Indicates no initialization happened
+            }
+            
             try {
-                // Show loading state when we will call init
+                // Show loading state
                 chatContainer.innerHTML = `
                     <div class="flex items-center justify-center h-full">
                         <div class="text-center">
@@ -583,16 +568,20 @@
                         </div>
                     </div>
                 `;
+                
+                // Disable input during initialization
                 messageInput.disabled = true;
                 sendButton.disabled = true;
                 
-                const body = encryptedParam
-                    ? { encrypted_param: encryptedParam }
-                    : {};
+                // Call init endpoint
                 const response = await fetch(`${baseUrl}/chat/init`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        encrypted_param: encryptedParam
+                    })
                 });
                 
                 if (!response.ok) {
@@ -720,7 +709,7 @@
         //     updateSendButton();
         // });
 
-        async function sendMessage(fromSuggestion = false) {
+        async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message) return;
 
@@ -749,7 +738,7 @@
             sendButton.disabled = true;
 
             try {
-                const streamResponse = await aiClient.sendMessage(message, true, fromSuggestion);
+                const streamResponse = await aiClient.sendMessage(message, true);
                 let fullText = '';
                 let hasReceivedData = false;
                 
@@ -791,22 +780,13 @@
                     aiClient.setSessionId(finalResponse.session_id);
                 }
                 
-                // Parse suggestions if present (each item may be "label" or "label | url")
+                // Parse suggestions if present
                 const suggestionsMatch = fullText.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
                 if (suggestionsMatch) {
                     const mainText = fullText.substring(0, suggestionsMatch.index).trim();
                     const suggestionsText = suggestionsMatch[1].trim();
-                    const rawItems = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => {
+                    const suggestions = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => {
                         return s.replace(/^\d+\)\s*/, '').trim();
-                    });
-                    const suggestions = rawItems.map(s => {
-                        const pipe = s.indexOf(' | ');
-                        if (pipe > 0) {
-                            const label = s.substring(0, pipe).trim();
-                            const url = s.substring(pipe + 3).trim();
-                            return { label, url: url.startsWith('http') ? url : null };
-                        }
-                        return { label: s, url: null };
                     });
 
                     if (suggestions.length > 0) {
@@ -814,12 +794,11 @@
                             <div class="mt-4 pt-4 border-t border-gray-200">
                                 <p class="text-[13px] sm:text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p>
                                 <div class="space-y-2">
-                                    ${suggestions.map((item, idx) => {
-                                        if (item.url) {
-                                            return `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="suggestion-link block w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer">${idx + 1}) ${escapeHtml(item.label)}</a>`;
-                                        }
-                                        return `<button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(item.label)}">${idx + 1}) ${escapeHtml(item.label)}</button>`;
-                                    }).join('')}
+                                    ${suggestions.map((s, idx) => `
+                                        <button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg transition-colors cursor-pointer" data-suggestion="${escapeHtml(s)}">
+                                            ${idx + 1}) ${escapeHtml(s)}
+                                        </button>
+                                    `).join('')}
                                 </div>
                             </div>
                         `;
@@ -831,7 +810,7 @@
                                 messageInput.value = suggestion;
                                 messageInput.focus();
                                 autoResizeTextarea();
-                                sendMessage(true);
+                                sendMessage();
                             });
                         });
                     }
@@ -843,39 +822,9 @@
                 messageDiv.style.display = 'block';
                 
                 try {
-                    const response = await aiClient.sendMessage(message, false, fromSuggestion);
-                    const fullText = response.output || '';
-                    const suggestionsMatch = fullText.match(/پیشنهادهای بعدی:\s*([\s\S]*?)(?:\n\n|$)/);
-                    if (suggestionsMatch) {
-                        const mainText = fullText.substring(0, suggestionsMatch.index).trim();
-                        const suggestionsText = suggestionsMatch[1].trim();
-                        const rawItems = suggestionsText.split(/\n\s*(?=\d+\))/).filter(s => s.trim()).map(s => s.replace(/^\d+\)\s*/, '').trim());
-                        const suggestions = rawItems.map(s => {
-                            const pipe = s.indexOf(' | ');
-                            if (pipe > 0) {
-                                const label = s.substring(0, pipe).trim();
-                                const url = s.substring(pipe + 3).trim();
-                                return { label, url: url.startsWith('http') ? url : null };
-                            }
-                            return { label: s, url: null };
-                        });
-                        if (suggestions.length > 0) {
-                            const suggestionsHtml = `<div class="mt-4 pt-4 border-t border-gray-200"><p class="text-[13px] sm:text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p><div class="space-y-2">${suggestions.map((item, idx) => item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="suggestion-link block w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg">${idx + 1}) ${escapeHtml(item.label)}</a>` : `<button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg" data-suggestion="${escapeHtml(item.label)}">${idx + 1}) ${escapeHtml(item.label)}</button>`).join('')}</div></div>`;
-                            streamingContent.innerHTML = marked.parse(mainText) + suggestionsHtml;
-                            messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
-                                btn.addEventListener('click', () => {
-                                    messageInput.value = btn.getAttribute('data-suggestion');
-                                    messageInput.focus();
-                                    autoResizeTextarea();
-                                    sendMessage(true);
-                                });
-                            });
-                        } else {
-                            streamingContent.innerHTML = marked.parse(fullText);
-                        }
-                    } else {
-                        streamingContent.innerHTML = marked.parse(fullText);
-                    }
+                    const response = await aiClient.sendMessage(message, false);
+                    streamingContent.innerHTML = marked.parse(response.output);
+                    
                     if (response.session_id) {
                         aiClient.setSessionId(response.session_id);
                     }

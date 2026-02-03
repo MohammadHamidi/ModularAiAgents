@@ -1,14 +1,13 @@
 import os
 import json
 from fastapi import FastAPI, HTTPException
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import httpx
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
 load_dotenv()
@@ -82,57 +81,43 @@ ICON_PATH = find_static_file("Icon.png")
 FAVICON_PATH = find_static_file("favicon.ico")
 MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 
-# Mount static files directory for CSS and other assets
-# Try Docker path first, then local development path
-static_dir_docker = Path("/app/static")
-static_dir_local = Path(__file__).parent.parent.parent / "static"
-STATIC_DIR = static_dir_docker if static_dir_docker.exists() else static_dir_local
-
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request, exc: RequestValidationError):
-    """Return 422 with clear validation errors so clients can fix request payload."""
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
-
 
 # =============================================================================
 # Pydantic Models for API Documentation
 # =============================================================================
 
 class ChatRequest(BaseModel):
-    """Request model for chat endpoint. Extra keys from client are ignored to avoid 422."""
+    """Request model for chat endpoint"""
     message: str
     session_id: Optional[str] = None
     user_data: Optional[Dict[str, Any]] = None
     use_shared_context: bool = True
-    from_suggestion: bool = False
-
-    model_config = ConfigDict(
-        extra="ignore",
-        json_schema_extra={
+    
+    class Config:
+        schema_extra = {
             "example": {
                 "message": "سلام! سفیران آیه ها چیست؟",
                 "session_id": None,
-                "user_data": {"name": "علی", "city": "تهران"},
-                "use_shared_context": True,
+                "user_data": {
+                    "name": "علی",
+                    "city": "تهران"
+                },
+                "use_shared_context": True
             }
-        },
-    )
+        }
 
 class ChatInitRequest(BaseModel):
     """Request model for initializing chat from Safiranayeha website."""
-    encrypted_param: Optional[str] = None
-    user_id: Optional[str] = None
-    path: Optional[str] = None
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"encrypted_param": "encrypted_base64_string_from_url"}
+    encrypted_param: Optional[str] = None  # Optional encrypted parameter from URL
+    user_id: Optional[str] = None  # Direct user_id (alternative to encrypted_param)
+    path: Optional[str] = None  # Website path (alternative to encrypted_param)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "encrypted_param": "encrypted_base64_string_from_url"
+            }
         }
-    )
 
 class ChatInitResponse(BaseModel):
     """Response model for chat initialization."""
@@ -228,21 +213,6 @@ async def health():
             "service": "gateway",
             "error": str(e)
         }
-
-@app.get("/health/dependencies", tags=["Health"])
-async def health_dependencies():
-    """
-    Forward to chat-service dependency check (session memory + LightRAG).
-    Returns database and lightrag status so you can verify both work.
-    """
-    try:
-        response = await http_client.get("/health/dependencies")
-        response.raise_for_status()
-        return response.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
 
 @app.get("/agents", tags=["Agents"])
 async def list_agents():
@@ -367,17 +337,9 @@ async def chat(agent_key: str, request: ChatRequest):
     Returns the agent's response with suggestions and metadata.
     """
     try:
-        # Build body to match chat-service AgentRequest exactly (avoid 422 validation)
-        body = {
-            "message": request.message,
-            "use_shared_context": request.use_shared_context,
-            "from_suggestion": request.from_suggestion,
-        }
-        if request.session_id is not None:
-            body["session_id"] = request.session_id
-        if request.user_data is not None:
-            body["user_data"] = request.user_data
-        response = await http_client.post(f"/chat/{agent_key}", json=body)
+        # Exclude None values to avoid validation errors in chat-service
+        request_dict = request.dict(exclude_none=True)
+        response = await http_client.post(f"/chat/{agent_key}", json=request_dict)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:
@@ -404,19 +366,12 @@ async def chat_stream(agent_key: str, request: ChatRequest):
         # The context manager will stay open as long as the generator is active
         async with httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=300.0) as client:
             try:
-                body = {
-                    "message": request.message,
-                    "use_shared_context": request.use_shared_context,
-                    "from_suggestion": request.from_suggestion,
-                }
-                if request.session_id is not None:
-                    body["session_id"] = request.session_id
-                if request.user_data is not None:
-                    body["user_data"] = request.user_data
+                # Exclude None values to avoid validation errors in chat-service
+                request_dict = request.dict(exclude_none=True)
                 async with client.stream(
                     "POST",
                     f"/chat/{agent_key}/stream",
-                    json=body
+                    json=request_dict
                 ) as response:
                     response.raise_for_status()
                     async for chunk in response.aiter_bytes():

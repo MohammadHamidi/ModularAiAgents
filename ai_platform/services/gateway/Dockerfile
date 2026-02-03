@@ -1,7 +1,4 @@
-# Use a registry mirror for the base image when Docker Hub is unreachable (no daemon restart needed).
-# Override in Coolify build args: DOCKER_REGISTRY_MIRROR=focker.ir or docker.dockerme.ir etc.
-ARG DOCKER_REGISTRY_MIRROR=docker.iranserver.com
-FROM --platform=linux/amd64 ${DOCKER_REGISTRY_MIRROR}/library/python:3.11-slim-bookworm
+FROM python:3.11-slim
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
@@ -19,15 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # =============================================================================
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
-# Try default PyPI first; on timeout/SSL errors fall back to a public mirror.
 # =============================================================================
 COPY services/gateway/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    (pip install --no-cache-dir --default-timeout=120 --retries 5 -r /app/requirements.txt || \
-     pip install --no-cache-dir --default-timeout=300 --retries 10 \
-       -i "https://mirror-pypi.runflare.com/simple/" \
-       --trusted-host "mirror-pypi.runflare.com" \
-       -r /app/requirements.txt)
+RUN pip install --upgrade pip && \
+    pip install --default-timeout=100 --retries 5 -r /app/requirements.txt
 
 # =============================================================================
 # LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
@@ -43,9 +35,6 @@ COPY Chat.html /app/Chat.html
 COPY Icon.png /app/Icon.png
 COPY favicon.ico /app/favicon.ico
 COPY monitoring_dashboard.html /app/monitoring_dashboard.html
-
-# Copy static assets (compiled CSS, fonts, etc.)
-COPY static /app/static
 
 # Set working directory to service directory
 WORKDIR /app/services/gateway

@@ -1,4 +1,5 @@
 # services/chat-service/main.py
+import asyncio
 import os
 import uuid
 import logging
@@ -29,7 +30,6 @@ from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool, GetCompanyInfoTool
 from tools.konesh_query import KoneshQueryTool
-from tools.konesh_csv import KoneshCSVTool
 
 # Import monitoring
 from monitoring import trace_collector
@@ -178,7 +178,13 @@ safiranayeha_client: SafiranayehaClient | None = None  # Safiranayeha API client
 path_router: PathRouter | None = None  # Path-to-agent router
 chain_executor = None  # LangChain chain-based executor (when EXECUTOR_MODE=langchain_chain)
 EXECUTOR_MODE = os.getenv("EXECUTOR_MODE", "pydantic_ai")  # pydantic_ai | langchain_chain
-CHAT_UI_CONFIG: Dict[str, Any] = {}  # chat_ui section from main agent_config.yaml (set at startup)
+
+
+async def _db_connect_test(engine):
+    """Run a simple DB check; used with asyncio.wait_for to avoid blocking startup."""
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT 1"))
+
 
 def register_agent(key: str, agent_class, config: dict, full_config=None):
     """Register agent with configuration"""
@@ -193,22 +199,22 @@ def register_agent(key: str, agent_class, config: dict, full_config=None):
 
 @app.on_event("startup")
 async def startup():
-    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor, CHAT_UI_CONFIG
+    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor
 
     logging.info("Starting chat service initialization...")
 
     # Initialize managers
     db_url = os.getenv("DATABASE_URL")
 
-    # Allow startup without DATABASE_URL so the container can be healthy (e.g. local dev).
-    # Use a placeholder so create_async_engine/SessionManager don't get None; connection will fail at runtime.
+    # Validate DATABASE_URL
     if not db_url:
-        db_url = "postgresql+asyncpg://localhost:5432/placeholder"
-        logging.warning("DATABASE_URL is not set! Using placeholder. Set DATABASE_URL in .env or environment for database support.")
-        logging.warning("Format: postgresql+asyncpg://user:pass@host:5432/dbname")
+        logging.error("DATABASE_URL environment variable is not set!")
+        logging.error("Please set DATABASE_URL in Coolify environment variables.")
+        logging.error("Format: postgresql+asyncpg://user:pass@host:5432/dbname")
+        raise ValueError("DATABASE_URL is required but not set")
     
-    # Validate DATABASE_URL format (when set)
-    if db_url != "postgresql+asyncpg://localhost:5432/placeholder" and not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
+    # Validate DATABASE_URL format
+    if not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
         logging.warning(f"DATABASE_URL format may be incorrect: {db_url[:50]}...")
         logging.warning("Expected format: postgresql+asyncpg://user:pass@host:5432/dbname")
     
@@ -217,11 +223,20 @@ async def startup():
         session_manager = SessionManager(db_url)
         context_manager = ContextManager(engine)
         
-        # Test database connection on startup
+        # Test database connection on startup (with timeout so startup does not hang)
+        _db_test_seconds = 5
         try:
-            async with engine.begin() as conn:
-                await conn.execute(text("SELECT 1"))
+            await asyncio.wait_for(
+                _db_connect_test(engine),
+                timeout=_db_test_seconds,
+            )
             logging.info("Database connection test successful")
+        except asyncio.TimeoutError:
+            logging.warning(
+                f"Database connection test timed out after {_db_test_seconds}s. "
+                "Service will start; DB operations may fail until the database is reachable."
+            )
+            logging.warning("Verify DATABASE_URL and that the DB host is reachable from the container.")
         except Exception as conn_error:
             logging.error(f"Database connection test failed: {conn_error}")
             logging.error("Service will start but database operations may fail")
@@ -262,8 +277,6 @@ async def startup():
         logging.info("Falling back to default config")
         agent_full_config = load_agent_config("agent_config.yaml")
 
-    CHAT_UI_CONFIG = getattr(agent_full_config, "chat_ui", None) or {}
-
     # Get model config from loaded configuration
     model_config = agent_full_config.model_config
     temperature = model_config.get("temperature", 0.7)
@@ -282,17 +295,16 @@ async def startup():
     ToolRegistry.register_tool(WebSearchTool())
     ToolRegistry.register_tool(GetCompanyInfoTool())
     ToolRegistry.register_tool(KoneshQueryTool())
-    ToolRegistry.register_tool(KoneshCSVTool())
     
     logging.info(f"Registered {len(ToolRegistry.list_tools())} tools: {ToolRegistry.list_tools()}")
     
-    # Define which tools each persona can use (query_konesh_csv = full کنش CSV for all agents)
+    # Define which tools each persona can use
     persona_tool_assignments = {
         "orchestrator": ["route_to_agent"],  # Orchestrator routing tool
-        "guest_faq": ["knowledge_base_query", "query_konesh_csv"],  # FAQ + کنش reference
-        "action_expert": ["query_konesh", "knowledge_base_query", "query_konesh_csv"],  # Action expert + CSV
-        "journey_register": ["query_konesh", "knowledge_base_query", "query_konesh_csv"],  # Journey + CSV
-        "rewards_invite": ["knowledge_base_query", "query_konesh_csv"],  # Rewards + کنش reference
+        "guest_faq": ["knowledge_base_query"],  # FAQ agent - minimal tools
+        "action_expert": ["query_konesh", "knowledge_base_query"],  # Action expert tools
+        "journey_register": ["query_konesh", "knowledge_base_query"],  # Journey agent - needs KB for guidance
+        "rewards_invite": ["knowledge_base_query"],  # Rewards agent - basic tools
     }
     
     # ==========================================================================
@@ -388,13 +400,11 @@ async def startup():
         from chains.chain_executor import ChainExecutor
         kb_tool = ToolRegistry.get_tool("knowledge_base_query")
         konesh_tool = ToolRegistry.get_tool("query_konesh")
-        konesh_csv_tool = ToolRegistry.get_tool("query_konesh_csv")
         if kb_tool and AGENT_CONFIGS:
             chain_executor = ChainExecutor(
                 agent_configs=AGENT_CONFIGS,
                 kb_tool=kb_tool,
                 konesh_tool=konesh_tool,
-                konesh_csv_tool=konesh_csv_tool,
             )
             logging.info("✅ Chain executor initialized (EXECUTOR_MODE=langchain_chain)")
         else:
@@ -455,61 +465,6 @@ async def health_stream():
             "X-Accel-Buffering": "no"
         }
     )
-
-
-@app.get("/health/dependencies", tags=["Health"])
-async def health_dependencies():
-    """
-    Check that session memory (database) and LightRAG knowledge retrieval work.
-    Use this to verify both memory and knowledge base are correctly configured.
-
-    Returns:
-        database: "ok" if chat_sessions/context can be reached; "error" otherwise.
-        lightrag: "ok" if LightRAG returns context; "unavailable" if configured but unreachable; "not_configured" if LIGHTRAG_BASE_URL is not set.
-    """
-    result = {"database": "unknown", "lightrag": "not_configured"}
-
-    # 1) Session memory (database)
-    try:
-        _ = await session_manager.get_session(uuid.uuid4())
-        result["database"] = "ok"
-    except Exception as e:
-        logging.warning(f"Health dependencies: database check failed: {e}")
-        result["database"] = "error"
-        result["database_error"] = str(e)
-
-    # 2) LightRAG knowledge retrieval (optional)
-    lightrag_url = (os.getenv("LIGHTRAG_BASE_URL") or "").strip().rstrip("/")
-    if not lightrag_url:
-        result["lightrag"] = "not_configured"
-        return result
-
-    try:
-        import asyncio
-        kb = KnowledgeBaseTool()
-        task = kb.execute(
-            query="سلام",
-            mode="mix",
-            only_need_context=True,
-            include_references=False,
-            conversation_history=None,
-        )
-        out = await asyncio.wait_for(task, timeout=10.0)
-        if out and "UNAVAILABLE" not in (out or ""):
-            result["lightrag"] = "ok"
-        else:
-            result["lightrag"] = "unavailable"
-            result["lightrag_detail"] = (out or "empty")[:200]
-    except asyncio.TimeoutError:
-        result["lightrag"] = "unavailable"
-        result["lightrag_detail"] = "timeout"
-    except Exception as e:
-        logging.warning(f"Health dependencies: LightRAG check failed: {e}")
-        result["lightrag"] = "unavailable"
-        result["lightrag_detail"] = str(e)[:200]
-
-    return result
-
 
 @app.get("/agents", tags=["Agents"])
 async def list_agents():
@@ -701,28 +656,12 @@ async def initialize_chat(request: ChatInitRequest):
     }
     ```
     """
-    global safiranayeha_client, path_router, CHAT_UI_CONFIG
+    global safiranayeha_client, path_router
 
     try:
-        # No Safiranayeha param: open chat with intro (session + default agent + welcome from config)
-        if not request.encrypted_param and not request.user_id:
-            session_id = uuid.uuid4()
-            agent_key = "guest_faq"
-            if agent_key not in AGENTS:
-                agent_key = next((k for k in AGENTS if k != "orchestrator"), "guest_faq")
-            logging.info(f"Chat init without param: new session {session_id}, agent_key={agent_key}")
-            intro_messages = CHAT_UI_CONFIG.get("intro_messages") or {}
-            show_intro = CHAT_UI_CONFIG.get("show_intro_on_open", True)
-            welcome_message = (intro_messages.get(agent_key) or intro_messages.get("default", "")) if show_intro else None
-            return ChatInitResponse(
-                session_id=str(session_id),
-                agent_key=agent_key,
-                user_data=None,
-                welcome_message=welcome_message or None,
-            )
-
         # Step 1: Extract UserId and Path
         if request.encrypted_param:
+            # Decrypt parameter
             logging.info("Decrypting Safiranayeha parameter...")
             try:
                 decrypted_data = decrypt_safiranayeha_param(request.encrypted_param)
@@ -733,8 +672,11 @@ async def initialize_chat(request: ChatInitRequest):
                 logging.error(f"Failed to decrypt parameter: {e}")
                 raise HTTPException(400, f"Invalid encrypted parameter: {str(e)}")
         else:
+            # Use direct parameters
             user_id = request.user_id
             path = request.path or '/'
+            if not user_id:
+                raise HTTPException(400, "Either encrypted_param or user_id must be provided")
 
         # Step 2: Fetch user data from Safiranayeha API
         logging.info(f"Fetching user data for user_id={user_id}...")
@@ -743,12 +685,15 @@ async def initialize_chat(request: ChatInitRequest):
             logging.info(f"Fetched user data with {len(user_data_raw)} fields")
         except Exception as e:
             logging.error(f"Failed to fetch user data: {e}")
+            # Continue with empty user data
             user_data_raw = {}
             logging.warning("Continuing with empty user data")
 
         # Step 3: Determine agent based on path
         agent_key = path_router.get_agent_for_path(path)
         logging.info(f"Mapped path '{path}' to agent '{agent_key}'")
+
+        # Verify agent exists
         if agent_key not in AGENTS:
             logging.warning(f"Agent '{agent_key}' not found, falling back to guest_faq")
             agent_key = "guest_faq"
@@ -761,6 +706,8 @@ async def initialize_chat(request: ChatInitRequest):
         if user_data_raw:
             normalized_user_data = safiranayeha_client.normalize_user_data_for_context(user_data_raw)
             logging.info(f"Normalized {len(normalized_user_data)} user data fields")
+
+            # Save to context manager
             try:
                 await context_manager.merge_context(
                     session_id,
@@ -770,22 +717,23 @@ async def initialize_chat(request: ChatInitRequest):
                 logging.info(f"Saved user context for session {session_id}")
             except Exception as e:
                 logging.error(f"Failed to save user context: {e}")
+                # Continue anyway
 
-        # Step 6: Welcome message from chat_ui intro_messages or fallback
-        intro_messages = CHAT_UI_CONFIG.get("intro_messages") or {}
-        welcome_message = intro_messages.get(agent_key) or intro_messages.get("default")
-        if welcome_message is None:
-            if agent_key == "guest_faq":
-                welcome_message = "سلام! خوش اومدی به سفیران آیه‌ها 🌟 چطور می‌تونم کمکت کنم؟"
-            elif agent_key == "action_expert":
-                welcome_message = "سلام! برای تولید محتوای کنش‌ها آماده‌ام. چه کنشی مد نظرته؟"
-            elif agent_key == "journey_register":
-                welcome_message = "سلام! بیا مسیر سفیران رو با هم طی کنیم. از کجا شروع کنیم؟"
-            elif agent_key == "rewards_invite":
-                welcome_message = "سلام! برای اطلاعات امتیازات و دعوت‌ها اینجام. چه چیزی می‌خوای بدونی؟"
-            else:
-                welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
+        # Step 6: Generate welcome message (optional)
+        welcome_message = None
+        # You can customize this based on agent_key
+        if agent_key == "guest_faq":
+            welcome_message = "سلام! خوش اومدی به سفیران آیه‌ها 🌟 چطور می‌تونم کمکت کنم؟"
+        elif agent_key == "action_expert":
+            welcome_message = "سلام! برای تولید محتوای کنش‌ها آماده‌ام. چه کنشی مد نظرته؟"
+        elif agent_key == "journey_register":
+            welcome_message = "سلام! بیا مسیر سفیران رو با هم طی کنیم. از کجا شروع کنیم؟"
+        elif agent_key == "rewards_invite":
+            welcome_message = "سلام! برای اطلاعات امتیازات و دعوت‌ها اینجام. چه چیزی می‌خوای بدونی؟"
+        else:
+            welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
 
+        # Step 7: Return response
         return ChatInitResponse(
             session_id=str(session_id),
             agent_key=agent_key,
@@ -908,30 +856,17 @@ async def chat(agent_key: str, request: AgentRequest):
                 logging.error(f"Database connection error when saving user_data for session {sid}: {e}")
                 logging.warning("User data not persisted due to database error, but continuing with request")
 
-    # Load session history and metadata
+    # Load session history
     try:
         session = await session_manager.get_session(sid)
         history = session["messages"] if session else []
-        metadata = (session.get("metadata") or {}) if session else {}
         logging.info(f"Loaded history for session {sid}: {len(history)} messages")
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
+        # Continue with empty history if database is unavailable
+        # This allows the service to work even if database has temporary issues
         history = []
-        metadata = {}
         logging.warning("Continuing with empty history due to database error")
-
-    # Build session_state for suggestion lifecycle (user_mode, suggestion_click_count, last_message_from_suggestion)
-    session_state = {
-        "user_mode": metadata.get("user_mode", "guided"),
-        "suggestion_click_count": metadata.get("suggestion_click_count", 0),
-        "last_message_from_suggestion": metadata.get("last_message_from_suggestion", False),
-        "_chat_ui_config": CHAT_UI_CONFIG,
-    }
-    if getattr(request, "from_suggestion", False):
-        session_state["suggestion_click_count"] = session_state.get("suggestion_click_count", 0) + 1
-        session_state["last_message_from_suggestion"] = True
-        if metadata.get("last_message_from_suggestion") is True:
-            session_state["user_mode"] = "free"
 
     # Load shared context (includes any user_data just saved)
     shared_context = {}
@@ -948,9 +883,9 @@ async def chat(agent_key: str, request: AgentRequest):
             normalized_user_data = normalize_user_data(request.user_data)
             shared_context.update(normalized_user_data)
 
-    # Process with executor (history + structured shared context + session_state)
+    # Process with executor (history + structured shared context)
     request.session_id = str(sid)
-    response = await executor.process(request, history, shared_context, agent_key=agent_key, session_state=session_state)
+    response = await executor.process(request, history, shared_context, agent_key=agent_key)
 
     # Debug log: after agent processing, before persistence
     _agent_debug_log(
@@ -977,18 +912,12 @@ async def chat(agent_key: str, request: AgentRequest):
     
     # Save session (agent should return updated history in metadata)
     new_history = response.metadata.get("history", history)
-    final_metadata = {
-        "last_agent": agent_key,
-        "user_mode": response.metadata.get("user_mode", session_state.get("user_mode", "guided")),
-        "suggestion_click_count": response.metadata.get("suggestion_click_count", session_state.get("suggestion_click_count", 0)),
-        "last_message_from_suggestion": response.metadata.get("last_message_from_suggestion", session_state.get("last_message_from_suggestion", False)),
-    }
     try:
         await session_manager.upsert_session(
-            sid,
-            new_history,
+            sid, 
+            new_history, 
             agent_key,
-            metadata=final_metadata,
+            metadata={"last_agent": agent_key}
         )
     except Exception as e:
         logging.error(f"Database connection error when saving session {sid}: {e}")
@@ -1510,6 +1439,8 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     Direct routing to the specified agent.
     Returns streaming response as Server-Sent Events (SSE).
     """
+    import asyncio
+    
     logging.info(f"Streaming request received for agent_key: {agent_key}, session_id: {request.session_id}")
     logging.info(f"Available agents: {list(AGENTS.keys())}")
     
@@ -1535,28 +1466,16 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     else:
         sid = uuid.uuid4()
     
-    # Load session history, metadata, and context (same as regular endpoint)
+    # Load session history and context (same as regular endpoint)
     try:
         session = await session_manager.get_session(sid)
         history = session["messages"] if session else []
-        metadata = (session.get("metadata") or {}) if session else {}
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
+        # Continue with empty history if database is unavailable
+        # This allows the service to work even if database has temporary issues
         history = []
-        metadata = {}
         logging.warning("Continuing with empty history due to database error")
-
-    session_state = {
-        "user_mode": metadata.get("user_mode", "guided"),
-        "suggestion_click_count": metadata.get("suggestion_click_count", 0),
-        "last_message_from_suggestion": metadata.get("last_message_from_suggestion", False),
-        "_chat_ui_config": CHAT_UI_CONFIG,
-    }
-    if getattr(request, "from_suggestion", False):
-        session_state["suggestion_click_count"] = session_state.get("suggestion_click_count", 0) + 1
-        session_state["last_message_from_suggestion"] = True
-        if metadata.get("last_message_from_suggestion") is True:
-            session_state["user_mode"] = "free"
     
     shared_context = {}
     if request.use_shared_context:
@@ -1574,89 +1493,76 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     request.session_id = str(sid)
     
     async def generate_stream():
-        """Generate streaming response chunks. Uses real LLM streaming when executor supports it."""
+        """Generate streaming response chunks"""
         response = None
         try:
             logging.info(f"Starting stream generation for agent: {agent_key}, session: {sid}")
+            
+            # Send session ID first
             yield f"data: {json.dumps({'session_id': str(sid)})}\n\n"
-
-            # Real streaming: chain executor supports process_stream (LLM tokens as they arrive)
-            use_real_stream = use_chain and hasattr(executor, "process_stream") and callable(getattr(executor, "process_stream", None))
-
-            if use_real_stream:
-                logging.info("Using real LLM streaming (process_stream)")
-                try:
-                    async for event in executor.process_stream(request, history, shared_context, agent_key=agent_key, session_state=session_state):
-                        if event.get("type") == "chunk":
-                            content = event.get("content", "")
-                            if content:
-                                yield f"data: {json.dumps({'chunk': content})}\n\n"
-                        elif event.get("type") == "done":
-                            response = type("StreamDone", (), {
-                                "output": event.get("output", ""),
-                                "metadata": event.get("metadata", {}),
-                                "context_updates": event.get("context_updates", {}),
-                            })()
-                            break
-                except Exception as stream_err:
-                    logging.exception(f"Stream generation failed: {stream_err}")
-                    yield f"data: {json.dumps({'error': str(stream_err)})}\n\n"
+            
+            # Process the request
+            logging.info(f"Processing request with agent: {agent_key}")
+            try:
+                response = await executor.process(request, history, shared_context, agent_key=agent_key)
+                logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
+                
+                if not response:
+                    logging.error("❌ Agent.process() returned None!")
+                    yield f"data: {json.dumps({'error': 'Agent returned no response'})}\n\n"
                     yield f"data: {json.dumps({'done': True})}\n\n"
                     return
-            else:
-                # Fallback: full response then replay (Pydantic AI or no process_stream)
-                try:
-                    response = await executor.process(request, history, shared_context, agent_key=agent_key, session_state=session_state)
-                    if not response:
-                        logging.error("❌ Agent.process() returned None!")
-                        yield f"data: {json.dumps({'error': 'Agent returned no response'})}\n\n"
-                        yield f"data: {json.dumps({'done': True})}\n\n"
-                        return
-                    if not response.output or len(response.output.strip()) == 0:
-                        logging.warning("⚠️ Agent returned empty output!")
-                        yield f"data: {json.dumps({'error': 'Agent returned empty response'})}\n\n"
-                        yield f"data: {json.dumps({'done': True})}\n\n"
-                        return
-                    words = response.output.split(" ")
-                    for i, word in enumerate(words):
-                        chunk = word + (" " if i < len(words) - 1 else "")
-                        yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-                except Exception as process_error:
-                    logging.error(f"❌ Error in executor.process(): {process_error}", exc_info=True)
-                    yield f"data: {json.dumps({'error': f'Processing error: {str(process_error)}'})}\n\n"
+                
+                if not response.output or len(response.output.strip()) == 0:
+                    logging.warning("⚠️ Agent returned empty output!")
+                    yield f"data: {json.dumps({'error': 'Agent returned empty response'})}\n\n"
                     yield f"data: {json.dumps({'done': True})}\n\n"
                     return
-
+                
+                # Post-process the output (same as regular endpoint)
+                output = response.output
+                logging.info(f"✅ Response received, starting to stream output (length: {len(output)})")
+            except Exception as process_error:
+                logging.error(f"❌ Error in executor.process(): {process_error}", exc_info=True)
+                yield f"data: {json.dumps({'error': f'Processing error: {str(process_error)}'})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+                return
+            
+            # Stream the output word by word for better UX
+            logging.info(f"Starting to stream {len(output.split(' '))} words")
+            words = output.split(" ")
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                await asyncio.sleep(0.01)  # Small delay for smooth streaming (10ms per word)
+            
+            logging.info("✅ Finished streaming all chunks, sending done signal")
+            # Send done signal
             yield f"data: {json.dumps({'done': True})}\n\n"
-
+            
+            # Save session and context (same as regular endpoint)
             if response:
                 try:
-                    resp_meta = getattr(response, "metadata", {}) or {}
-                    new_history = resp_meta.get("history", history) if isinstance(resp_meta, dict) else history
-                    final_metadata = {
-                        "last_agent": agent_key,
-                        "user_mode": resp_meta.get("user_mode", session_state.get("user_mode", "guided")),
-                        "suggestion_click_count": resp_meta.get("suggestion_click_count", session_state.get("suggestion_click_count", 0)),
-                        "last_message_from_suggestion": resp_meta.get("last_message_from_suggestion", session_state.get("last_message_from_suggestion", False)),
-                    }
+                    new_history = response.metadata.get("history", history)
                     await session_manager.upsert_session(
                         sid,
                         new_history,
                         agent_key,
-                        metadata=final_metadata,
+                        metadata={"last_agent": agent_key}
                     )
-                    context_updates = getattr(response, "context_updates", None) or {}
-                    if context_updates:
+                    if response.context_updates:
                         try:
                             await context_manager.merge_context(
                                 sid,
-                                context_updates,
+                                response.context_updates,
                                 agent_type=agent_key
                             )
                         except Exception as e:
                             logging.error(f"Database connection error when saving context for session {sid}: {e}")
+                            logging.warning("Context not persisted due to database error, but response sent successfully")
                 except Exception as e:
                     logging.error(f"Database connection error when saving session {sid}: {e}")
+                    logging.warning("Session not persisted due to database error, but response sent successfully")
                 
         except Exception as e:
             logging.error(f"Streaming error: {e}", exc_info=True)
