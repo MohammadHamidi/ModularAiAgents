@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Base image from Iran Docker mirror (avoids Docker Hub connectivity issues)
+# Fallback: FROM python:3.11-slim if mirror is unavailable
+FROM docker.iranserver.com/library/python:3.11-slim
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
@@ -16,10 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # =============================================================================
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
+# PyPI mirror: https://mirror-pypi.runflare.com/
 # =============================================================================
 COPY services/gateway/requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip && \
-    pip install --default-timeout=100 --retries 5 -r /app/requirements.txt
+RUN pip install --index-url https://mirror-pypi.runflare.com/ \
+    --trusted-host mirror-pypi.runflare.com --upgrade pip && \
+    pip install --index-url https://mirror-pypi.runflare.com/ \
+    --trusted-host mirror-pypi.runflare.com \
+    --default-timeout=100 --retries 5 -r /app/requirements.txt
 
 # =============================================================================
 # LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
