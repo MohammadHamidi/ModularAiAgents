@@ -200,15 +200,15 @@ async def startup():
     # Initialize managers
     db_url = os.getenv("DATABASE_URL")
 
-    # Validate DATABASE_URL
+    # Allow startup without DATABASE_URL so the container can be healthy (e.g. local dev).
+    # Use a placeholder so create_async_engine/SessionManager don't get None; connection will fail at runtime.
     if not db_url:
-        logging.error("DATABASE_URL environment variable is not set!")
-        logging.error("Please set DATABASE_URL in Coolify environment variables.")
-        logging.error("Format: postgresql+asyncpg://user:pass@host:5432/dbname")
-        raise ValueError("DATABASE_URL is required but not set")
+        db_url = "postgresql+asyncpg://localhost:5432/placeholder"
+        logging.warning("DATABASE_URL is not set! Using placeholder. Set DATABASE_URL in .env or environment for database support.")
+        logging.warning("Format: postgresql+asyncpg://user:pass@host:5432/dbname")
     
-    # Validate DATABASE_URL format
-    if not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
+    # Validate DATABASE_URL format (when set)
+    if db_url != "postgresql+asyncpg://localhost:5432/placeholder" and not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
         logging.warning(f"DATABASE_URL format may be incorrect: {db_url[:50]}...")
         logging.warning("Expected format: postgresql+asyncpg://user:pass@host:5432/dbname")
     

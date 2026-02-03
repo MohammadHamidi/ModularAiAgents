@@ -6,6 +6,7 @@ uvicorn[standard]==0.32.1
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 pydantic-ai==0.0.14
+griffe>=0.44.0  # required by pydantic-ai for docstring parsing
 openai==1.55.3
 httpx==0.28.1
 python-dotenv==1.0.1
