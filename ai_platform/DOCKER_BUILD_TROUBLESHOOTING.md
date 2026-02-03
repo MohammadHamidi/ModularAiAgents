@@ -2,14 +2,32 @@
 
 ## Configured mirrors (Iran)
 
-Builds use local mirrors to avoid Docker Hub / PyPI connectivity issues:
+Builds use local mirrors to avoid Docker Hub / PyPI / Debian connectivity issues:
 
 | Resource | Mirror | Where configured |
 |----------|--------|------------------|
-| **Docker images** (base) | `docker.iranserver.com` | Dockerfile `FROM docker.iranserver.com/library/python:3.11-slim` in chat-service and gateway |
+| **Docker images** (base) | `focker.ir` | Dockerfile `FROM focker.ir/python:3.11-slim` in chat-service and gateway |
+| **Debian apt** | `http://mirror.iranserver.com/debian` | Dockerfile `sed` + `apt-get update` in chat-service and gateway |
 | **PyPI** (Python packages) | `https://mirror-pypi.runflare.com/` | Dockerfile `pip install --index-url ...` in chat-service and gateway |
 
-To switch back to upstream (Docker Hub + PyPI), change each Dockerfile: use `FROM python:3.11-slim` and remove the `--index-url` / `--trusted-host` options from the `pip install` lines.
+**Optional – global Docker mirror (build host):**  
+To pull *any* image through focker.ir (not only the ones in the Dockerfile), configure the Docker daemon on the build host:
+
+```json
+{
+  "registry-mirrors": ["https://focker.ir"]
+}
+```
+
+Then restart Docker. After that, `docker pull python:3.11-slim` will use the mirror automatically.
+
+**Alternative Debian mirrors** (if mirror.iranserver.com is slow):  
+- `http://mirror.shatel.ir/debian`  
+- `https://linux-repository.arvancloud.ir/debian`  
+
+Edit the `sed` lines in the Dockerfile to point to the mirror you prefer.
+
+To switch back to upstream (Docker Hub + deb.debian.org + PyPI), change each Dockerfile: use `FROM python:3.11-slim`, remove the `sed` and use plain `apt-get update && apt-get install ...`, and remove the `--index-url` / `--trusted-host` options from the `pip install` lines.
 
 ---
 

@@ -1,6 +1,6 @@
 # Base image from Iran Docker mirror (avoids Docker Hub connectivity issues)
-# Fallback: FROM python:3.11-slim if mirror is unavailable
-FROM docker.iranserver.com/library/python:3.11-slim
+# Fallback: FROM python:3.11-slim if focker.ir is unavailable
+FROM focker.ir/python:3.11-slim
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
@@ -11,10 +11,12 @@ FROM docker.iranserver.com/library/python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies (including curl for health checks)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Use regional Debian mirror for apt (faster and more reliable from Iran)
+RUN sed -i 's|http://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list \
+ && sed -i 's|https://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
 
 # =============================================================================
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
