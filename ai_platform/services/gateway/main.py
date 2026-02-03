@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import httpx
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
 
 load_dotenv()
@@ -87,38 +87,36 @@ MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 # =============================================================================
 
 class ChatRequest(BaseModel):
-    """Request model for chat endpoint"""
+    """Request model for chat endpoint. Extra keys from client are ignored to avoid 422."""
     message: str
     session_id: Optional[str] = None
     user_data: Optional[Dict[str, Any]] = None
     use_shared_context: bool = True
     from_suggestion: bool = False
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        extra="ignore",
+        json_schema_extra={
             "example": {
                 "message": "سلام! سفیران آیه ها چیست؟",
                 "session_id": None,
-                "user_data": {
-                    "name": "علی",
-                    "city": "تهران"
-                },
-                "use_shared_context": True
+                "user_data": {"name": "علی", "city": "تهران"},
+                "use_shared_context": True,
             }
-        }
+        },
+    )
 
 class ChatInitRequest(BaseModel):
     """Request model for initializing chat from Safiranayeha website."""
-    encrypted_param: Optional[str] = None  # Optional encrypted parameter from URL
-    user_id: Optional[str] = None  # Direct user_id (alternative to encrypted_param)
-    path: Optional[str] = None  # Website path (alternative to encrypted_param)
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "encrypted_param": "encrypted_base64_string_from_url"
-            }
+    encrypted_param: Optional[str] = None
+    user_id: Optional[str] = None
+    path: Optional[str] = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"encrypted_param": "encrypted_base64_string_from_url"}
         }
+    )
 
 class ChatInitResponse(BaseModel):
     """Response model for chat initialization."""
@@ -353,9 +351,17 @@ async def chat(agent_key: str, request: ChatRequest):
     Returns the agent's response with suggestions and metadata.
     """
     try:
-        # Exclude None values to avoid validation errors in chat-service
-        request_dict = request.dict(exclude_none=True)
-        response = await http_client.post(f"/chat/{agent_key}", json=request_dict)
+        # Build body to match chat-service AgentRequest exactly (avoid 422 validation)
+        body = {
+            "message": request.message,
+            "use_shared_context": request.use_shared_context,
+            "from_suggestion": request.from_suggestion,
+        }
+        if request.session_id is not None:
+            body["session_id"] = request.session_id
+        if request.user_data is not None:
+            body["user_data"] = request.user_data
+        response = await http_client.post(f"/chat/{agent_key}", json=body)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:
@@ -382,12 +388,19 @@ async def chat_stream(agent_key: str, request: ChatRequest):
         # The context manager will stay open as long as the generator is active
         async with httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=300.0) as client:
             try:
-                # Exclude None values to avoid validation errors in chat-service
-                request_dict = request.dict(exclude_none=True)
+                body = {
+                    "message": request.message,
+                    "use_shared_context": request.use_shared_context,
+                    "from_suggestion": request.from_suggestion,
+                }
+                if request.session_id is not None:
+                    body["session_id"] = request.session_id
+                if request.user_data is not None:
+                    body["user_data"] = request.user_data
                 async with client.stream(
                     "POST",
                     f"/chat/{agent_key}/stream",
-                    json=request_dict
+                    json=body
                 ) as response:
                     response.raise_for_status()
                     async for chunk in response.aiter_bytes():

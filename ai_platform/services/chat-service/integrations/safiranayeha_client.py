@@ -7,7 +7,7 @@ import httpx
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,7 @@ class SafiranayehaUserData(BaseModel):
     is_verified: Optional[bool] = Field(None, alias="isVerified")
     created_at: Optional[str] = Field(None, alias="createdAt")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SafiranayehaClient:

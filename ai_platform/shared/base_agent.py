@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class AgentConfig(BaseModel):
     """Base configuration for all agents"""
@@ -8,14 +9,19 @@ class AgentConfig(BaseModel):
     model: str
     max_turns: int = 12
     temperature: float | None = None
-    extra: Dict[str, Any] = {}
+    extra: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentRequest(BaseModel):
+    """Request body for chat endpoints. Extra fields are ignored to avoid 422."""
     message: str
     session_id: str | None = None
-    context: Dict[str, Any] = {}  # Request-level context
-    use_shared_context: bool = True  # Whether to load shared context
-    user_data: Dict[str, Any] = {}  # User data from app (saved immediately)
-    from_suggestion: bool = False  # True when user sent message by clicking a suggestion
+    context: Dict[str, Any] = Field(default_factory=dict)
+    use_shared_context: bool = True
+    user_data: Dict[str, Any] = Field(default_factory=dict)
+    from_suggestion: bool = False
+
+    model_config = ConfigDict(extra="ignore")
 
 class AgentResponse(BaseModel):
     session_id: str
