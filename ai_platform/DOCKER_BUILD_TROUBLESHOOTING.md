@@ -2,11 +2,11 @@
 
 ## Configured mirrors (Iran)
 
-Builds use local mirrors to avoid Docker Hub / PyPI / Debian connectivity issues:
+Builds can use local mirrors to avoid Docker Hub / PyPI / Debian connectivity issues:
 
 | Resource | Mirror | Where configured |
 |----------|--------|------------------|
-| **Docker images** (base) | `focker.ir` | Dockerfile `FROM focker.ir/python:3.11-slim` in chat-service and gateway |
+| **Docker images** (base) | (host-level mirror, e.g. `https://focker.ir`) | Configure Docker daemon `registry-mirrors` on the build host |
 | **Debian apt** | `http://mirror.iranserver.com/debian` | Dockerfile `sed` + `apt-get update` in chat-service and gateway |
 | **PyPI** (Python packages) | `https://mirror-pypi.runflare.com/` | Dockerfile `pip install --index-url ...` in chat-service and gateway |
 

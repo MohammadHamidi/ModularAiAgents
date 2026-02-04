@@ -1,6 +1,6 @@
-# Base image from Iran Docker mirror (avoids Docker Hub connectivity issues)
-# Fallback: FROM python:3.11-slim if focker.ir is unavailable
-FROM focker.ir/python:3.11-slim
+# Base image from docker.iranserver.com mirror
+# If needed, you can switch back to: FROM python:3.11-slim
+FROM docker.iranserver.com/python:3.11-slim
 
 # =============================================================================
 # SECURITY WARNING: NEVER use ARG for secrets (API keys, passwords, etc.)
