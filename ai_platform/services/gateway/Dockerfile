@@ -15,10 +15,10 @@ RUN mkdir -p /etc && \
     printf '%s\n' \
     '[global]' \
     'index-url = https://pypi.iranrepo.ir/simple' \
-    'extra-index-url = https://mirror-pypi.runflare.com/' \
+    'extra-index-url = https://mirror-pypi.runflare.com/simple' \
     'trusted-host = pypi.iranrepo.ir mirror-pypi.runflare.com' \
-    'timeout = 240' \
-    'retries = 15' \
+    'timeout = 300' \
+    'retries = 20' \
     'prefer-binary = true' \
     'disable-pip-version-check = true' \
     > /etc/pip.conf
@@ -40,4 +40,4 @@ WORKDIR /app/services/gateway
 ENV PYTHONPATH=/app
 
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "800]()
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
