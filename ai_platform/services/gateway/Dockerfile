@@ -22,14 +22,19 @@ RUN if [ -f /etc/apt/sources.list ]; then \
 
 # =============================================================================
 # LAYER 1: Install Python dependencies FIRST (cached if requirements.txt unchanged)
-# PyPI mirror: https://mirror-pypi.runflare.com/
+# PyPI mirrors: primary iranrepo + fallback Runflare
 # =============================================================================
 COPY services/gateway/requirements.txt /app/requirements.txt
-RUN pip install --index-url https://mirror-pypi.runflare.com/ \
-    --trusted-host mirror-pypi.runflare.com --upgrade pip && \
-    pip install --index-url https://mirror-pypi.runflare.com/ \
+RUN pip install --index-url https://pypi.iranrepo.ir/simple \
+    --extra-index-url https://mirror-pypi.runflare.com/ \
+    --trusted-host pypi.iranrepo.ir \
     --trusted-host mirror-pypi.runflare.com \
-    --default-timeout=100 --retries 5 -r /app/requirements.txt
+    --default-timeout=180 --retries 10 --upgrade pip && \
+    pip install --index-url https://pypi.iranrepo.ir/simple \
+    --extra-index-url https://mirror-pypi.runflare.com/ \
+    --trusted-host pypi.iranrepo.ir \
+    --trusted-host mirror-pypi.runflare.com \
+    --default-timeout=180 --retries 10 -r /app/requirements.txt
 
 # =============================================================================
 # LAYER 2: Copy code files AFTER dependencies (changes don't invalidate pip cache)
