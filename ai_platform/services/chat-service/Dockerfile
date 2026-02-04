@@ -13,13 +13,12 @@ RUN if [ -f /etc/apt/sources.list ]; then \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
-# PIP config: PyPI primary, Runflare mirror fallback, with sane timeouts
+# PIP config: PyPI only (no Runflare), with sane timeouts
 RUN mkdir -p /etc && \
     printf '%s\n' \
     '[global]' \
     'index-url = https://pypi.org/simple' \
-    'extra-index-url = https://mirror-pypi.runflare.com/simple' \
-    'trusted-host = pypi.org mirror-pypi.runflare.com' \
+    'trusted-host = pypi.org' \
     'timeout = 90' \
     'retries = 4' \
     'prefer-binary = true' \

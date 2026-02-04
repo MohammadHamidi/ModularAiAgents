@@ -15,8 +15,7 @@ RUN mkdir -p /etc && \
     printf '%s\n' \
     '[global]' \
     'index-url = https://pypi.org/simple' \
-    'extra-index-url = https://mirror-pypi.runflare.com/simple' \
-    'trusted-host = pypi.org mirror-pypi.runflare.com' \
+    'trusted-host = pypi.org' \
     'timeout = 90' \
     'retries = 4' \
     'prefer-binary = true' \
