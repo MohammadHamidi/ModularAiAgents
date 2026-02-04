@@ -697,7 +697,47 @@
         }
 
         function renderWelcome() {
-            chatContainer.innerHTML = '';
+            chatContainer.innerHTML = `
+                <div class="flex justify-end mb-4">
+                    <div class="welcome-bubble markdown-content px-4 sm:px-5 py-4 sm:py-5 rounded-2xl max-w-[90%] sm:max-w-[80%] text-[13px] sm:text-sm bg-white">
+                        <h2 class="text-sm sm:text-base font-semibold text-gray-800 mb-1">
+                            سلام، من دستیار هوش مصنوعی سفیران آیه‌ها هستم 🌿
+                        </h2>
+                        <p class="text-[12px] sm:text-[13px] text-gray-600 mb-3">
+                            هر سوالی درباره‌ی قرآن، منابع دینی، یا حتی مسائل روزمره دارید، می‌توانید از من بپرسید.
+                        </p>
+                        <p class="text-[11px] sm:text-[12px] text-gray-500 mb-3">
+                            برای شروع می‌توانید یکی از پیشنهادهای زیر را انتخاب کنید یا سوال خودتان را بنویسید:
+                        </p>
+                        <div class="helper-message-gradient mt-2 pt-2 border-t border-gray-100">
+                            <div class="space-y-2">
+                                <button class="suggestion-btn w-full text-right text-[12px] sm:text-[13px] text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg cursor-pointer" data-suggestion="یک خلاصه الهام‌بخش از یک آیه قرآن برایم بگو.">
+                                    ۱) یک خلاصه الهام‌بخش از یک آیه قرآن برایم بگو.
+                                </button>
+                                <button class="suggestion-btn w-full text-right text-[12px] sm:text-[13px] text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg cursor-pointer" data-suggestion="چطور می‌توانم در زندگی روزمره‌ام بیشتر به یاد خدا باشم؟">
+                                    ۲) چطور می‌توانم در زندگی روزمره‌ام بیشتر به یاد خدا باشم؟
+                                </button>
+                                <button class="suggestion-btn w-full text-right text-[12px] sm:text-[13px] text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg cursor-pointer" data-suggestion="یک برنامه ساده برای تلاوت و تدبر روزانه قرآن پیشنهاد بده.">
+                                    ۳) یک برنامه ساده برای تلاوت و تدبر روزانه قرآن پیشنهاد بده.
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Attach click handlers to starter suggestions
+            chatContainer.querySelectorAll('.suggestion-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const suggestion = btn.getAttribute('data-suggestion');
+                    messageInput.value = suggestion;
+                    autoResizeTextarea();
+                    updateSendButton();
+                    sendMessage();
+                });
+            });
+
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
         // New session functionality disabled for now

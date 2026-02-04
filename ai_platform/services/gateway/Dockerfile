@@ -14,11 +14,11 @@ RUN if [ -f /etc/apt/sources.list ]; then \
 RUN mkdir -p /etc && \
     printf '%s\n' \
     '[global]' \
-    'index-url = https://pypi.iranrepo.ir/simple' \
+    'index-url = https://pypi.org/simple' \
     'extra-index-url = https://mirror-pypi.runflare.com/simple' \
-    'trusted-host = pypi.iranrepo.ir mirror-pypi.runflare.com' \
-    'timeout = 300' \
-    'retries = 20' \
+    'trusted-host = pypi.org mirror-pypi.runflare.com' \
+    'timeout = 90' \
+    'retries = 4' \
     'prefer-binary = true' \
     'disable-pip-version-check = true' \
     > /etc/pip.conf
