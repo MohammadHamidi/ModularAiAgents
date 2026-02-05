@@ -1,26 +1,10 @@
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+# syntax=docker/dockerfile:1
 FROM docker.iranserver.com/python:3.11-slim
-=======
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
->>>>>>> Stashed changes
-=======
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
->>>>>>> Stashed changes
-=======
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
->>>>>>> Stashed changes
 
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+# Debian mirror (IranServer) + minimal system deps
 RUN if [ -f /etc/apt/sources.list ]; then \
     sed -i 's|http://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list && \
     sed -i 's|https://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list && \
@@ -31,7 +15,7 @@ RUN if [ -f /etc/apt/sources.list ]; then \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
-# PIP config: PyPI only (no Runflare), with sane timeouts
+# pip config (stable downloads)
 RUN mkdir -p /etc && \
     printf '%s\n' \
     '[global]' \
@@ -43,51 +27,13 @@ RUN mkdir -p /etc && \
     'disable-pip-version-check = true' \
     > /etc/pip.conf
 
+# Install deps first (better layer cache)
 COPY services/chat-service/requirements.txt /app/requirements.txt
-
-# Use pip download cache
 RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --upgrade pip && \
     pip install -r /app/requirements.txt
 
-=======
-# System deps (keep minimal; add more only if needed)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python deps first (better caching)
-COPY services/chat-service/requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
-
-# Copy app code
->>>>>>> Stashed changes
-=======
-# System deps (keep minimal; add more only if needed)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python deps first (better caching)
-COPY services/chat-service/requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
-
-# Copy app code
->>>>>>> Stashed changes
-=======
-# System deps (keep minimal; add more only if needed)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python deps first (better caching)
-COPY services/chat-service/requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
-
-# Copy app code
->>>>>>> Stashed changes
+# App code
 COPY shared /app/shared
 COPY QA_EXAMPLES.md /app/QA_EXAMPLES.md
 COPY services/chat-service /app/services/chat-service

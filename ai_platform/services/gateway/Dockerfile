@@ -1,34 +1,21 @@
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+# syntax=docker/dockerfile:1
 FROM docker.iranserver.com/python:3.11-slim
-=======
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
->>>>>>> Stashed changes
-=======
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
->>>>>>> Stashed changes
-=======
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
->>>>>>> Stashed changes
 
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+# Debian mirror (IranServer) + minimal system deps
 RUN if [ -f /etc/apt/sources.list ]; then \
     sed -i 's|http://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list && \
-    sed -i 's|https://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list; \
+    sed -i 's|https://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.debian.org/debian-security|http://mirror.iranserver.com/debian-security|g' /etc/apt/sources.list && \
+    sed -i 's|https://security.debian.org/debian-security|http://mirror.iranserver.com/debian-security|g' /etc/apt/sources.list; \
     fi && \
     apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
+# pip config (stable downloads)
 RUN mkdir -p /etc && \
     printf '%s\n' \
     '[global]' \
@@ -40,56 +27,17 @@ RUN mkdir -p /etc && \
     'disable-pip-version-check = true' \
     > /etc/pip.conf
 
+# Install deps first (better layer cache)
 COPY services/gateway/requirements.txt /app/requirements.txt
-
 RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --upgrade pip && \
     pip install -r /app/requirements.txt
 
+# App code
 COPY shared /app/shared
 COPY services/gateway /app/services/gateway
 
-=======
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY services/gateway/requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
-
-COPY shared /app/shared
-COPY services/gateway /app/services/gateway
-
-# Static UI files
->>>>>>> Stashed changes
-=======
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY services/gateway/requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
-
-COPY shared /app/shared
-COPY services/gateway /app/services/gateway
-
-# Static UI files
->>>>>>> Stashed changes
-=======
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY services/gateway/requirements.txt /app/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
-
-COPY shared /app/shared
-COPY services/gateway /app/services/gateway
-
-# Static UI files
->>>>>>> Stashed changes
+# Static UI files (from repo root)
 COPY Chat.html /app/Chat.html
 COPY Icon.png /app/Icon.png
 COPY favicon.ico /app/favicon.ico
