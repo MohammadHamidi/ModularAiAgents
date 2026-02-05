@@ -1,5 +1,10 @@
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 FROM docker.iranserver.com/python:3.11-slim
+=======
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+>>>>>>> Stashed changes
 =======
 # syntax=docker/dockerfile:1
 FROM python:3.11-slim
@@ -8,6 +13,7 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
 RUN if [ -f /etc/apt/sources.list ]; then \
     sed -i 's|http://deb.debian.org/debian|http://mirror.iranserver.com/debian|g' /etc/apt/sources.list && \
@@ -37,6 +43,19 @@ COPY services/chat-service/requirements.txt /app/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r /app/requirements.txt
 
+=======
+# System deps (keep minimal; add more only if needed)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps first (better caching)
+COPY services/chat-service/requirements.txt /app/requirements.txt
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy app code
+>>>>>>> Stashed changes
 =======
 # System deps (keep minimal; add more only if needed)
 RUN apt-get update \
