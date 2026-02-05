@@ -1,6 +1,11 @@
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 FROM docker.iranserver.com/python:3.11-slim
+=======
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+>>>>>>> Stashed changes
 =======
 # syntax=docker/dockerfile:1
 FROM python:3.11-slim
@@ -13,6 +18,7 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
 RUN if [ -f /etc/apt/sources.list ]; then \
@@ -42,6 +48,20 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY shared /app/shared
 COPY services/gateway /app/services/gateway
 
+=======
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY services/gateway/requirements.txt /app/requirements.txt
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir -r /app/requirements.txt
+
+COPY shared /app/shared
+COPY services/gateway /app/services/gateway
+
+# Static UI files
+>>>>>>> Stashed changes
 =======
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
