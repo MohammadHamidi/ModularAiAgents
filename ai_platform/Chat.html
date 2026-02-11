@@ -370,6 +370,14 @@
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
 
+        // Markdown parser: use marked if loaded, else simple fallback (handles CDN failures)
+        function parseMarkdown(text) {
+            if (typeof marked !== 'undefined') return marked.parse(text || '');
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML.replace(/\n/g, '<br>');
+        }
+
         // Auto-resize textarea
         function autoResizeTextarea() {
             messageInput.style.height = 'auto';
@@ -604,7 +612,7 @@
                     welcomeDiv.className = 'flex justify-end mb-4 message-enter';
                     welcomeDiv.innerHTML = `
                         <div class="markdown-content bg-white px-4 sm:px-5 py-3 sm:py-4 rounded-2xl shadow-sm max-w-[85%] sm:max-w-[75%] text-[13px] sm:text-sm">
-                            ${marked.parse(data.welcome_message)}
+                            ${parseMarkdown(data.welcome_message)}
                         </div>
                     `;
                     chatContainer.appendChild(welcomeDiv);
@@ -795,7 +803,7 @@
                         }
                         
                         fullText += chunk;
-                        streamingContent.innerHTML = marked.parse(fullText);
+                        streamingContent.innerHTML = parseMarkdown(fullText);
                         chatContainer.scrollTop = chatContainer.scrollHeight;
                     }
                     
@@ -842,7 +850,7 @@
                                 </div>
                             </div>
                         `;
-                        streamingContent.innerHTML = marked.parse(mainText) + suggestionsHtml;
+                        streamingContent.innerHTML = parseMarkdown(mainText) + suggestionsHtml;
                         
                         messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
                             btn.addEventListener('click', () => {
@@ -863,7 +871,7 @@
                 
                 try {
                     const response = await aiClient.sendMessage(message, false);
-                    streamingContent.innerHTML = marked.parse(response.output);
+                    streamingContent.innerHTML = parseMarkdown(response.output);
                     
                     if (response.session_id) {
                         aiClient.setSessionId(response.session_id);

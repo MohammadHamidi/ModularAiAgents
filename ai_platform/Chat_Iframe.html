@@ -381,6 +381,14 @@
         const sendButton = document.getElementById('sendButton');
         const newSessionBtn = document.getElementById('newSessionBtn');
 
+        // Markdown parser: use marked if loaded, else simple fallback (handles CDN failures)
+        function parseMarkdown(text) {
+            if (typeof marked !== 'undefined') return marked.parse(text || '');
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML.replace(/\n/g, '<br>');
+        }
+
         // Auto-resize textarea
         function autoResizeTextarea() {
             messageInput.style.height = 'auto';
@@ -618,7 +626,7 @@
                         }
                         
                         fullText += chunk;
-                        streamingContent.innerHTML = marked.parse(fullText);
+                        streamingContent.innerHTML = parseMarkdown(fullText);
                         chatContainer.scrollTop = chatContainer.scrollHeight;
                     }
                     
@@ -675,7 +683,7 @@
                                 </div>
                             </div>
                         `;
-                        streamingContent.innerHTML = marked.parse(mainText) + suggestionsHtml;
+                        streamingContent.innerHTML = parseMarkdown(mainText) + suggestionsHtml;
                         
                         messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
                             btn.addEventListener('click', () => {
@@ -713,7 +721,7 @@
                         });
                         if (suggestions.length > 0) {
                             const suggestionsHtml = `<div class="mt-4 pt-4 border-t border-gray-200"><p class="text-[13px] sm:text-[12px] font-semibold text-gray-600 mb-2">پیشنهادهای بعدی:</p><div class="space-y-2">${suggestions.map((item, idx) => item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" class="suggestion-link block w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg">${idx + 1}) ${escapeHtml(item.label)}</a>` : `<button class="suggestion-btn w-full text-right text-[13px] sm:text-[12px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-2.5 sm:py-2 rounded-lg" data-suggestion="${escapeHtml(item.label)}">${idx + 1}) ${escapeHtml(item.label)}</button>`).join('')}</div></div>`;
-                            streamingContent.innerHTML = marked.parse(mainText) + suggestionsHtml;
+                            streamingContent.innerHTML = parseMarkdown(mainText) + suggestionsHtml;
                             messageDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
                                 btn.addEventListener('click', () => {
                                     messageInput.value = btn.getAttribute('data-suggestion');
@@ -723,10 +731,10 @@
                                 });
                             });
                         } else {
-                            streamingContent.innerHTML = marked.parse(fullText);
+                            streamingContent.innerHTML = parseMarkdown(fullText);
                         }
                     } else {
-                        streamingContent.innerHTML = marked.parse(fullText);
+                        streamingContent.innerHTML = parseMarkdown(fullText);
                     }
                     if (response.session_id) {
                         aiClient.setSessionId(response.session_id);
