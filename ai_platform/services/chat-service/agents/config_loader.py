@@ -79,7 +79,7 @@ class AgentConfig:
 
     def get_complete_system_prompt(
         self,
-        executor_mode: str = "pydantic_ai"
+        executor_mode: str = "langchain_chain"
     ) -> str:
         """
         Build complete system prompt with all instructions.

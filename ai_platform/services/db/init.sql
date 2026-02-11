@@ -31,3 +31,24 @@ CREATE INDEX IF NOT EXISTS idx_agent_context_session_id ON agent_context(session
 CREATE INDEX IF NOT EXISTS idx_agent_context_expires_at ON agent_context(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_context_agent_type ON agent_context(agent_type);
 
+-- Create service_logs table for log viewer (API requests, traces, conversations)
+CREATE TABLE IF NOT EXISTS service_logs (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    log_type VARCHAR(50) NOT NULL,
+    session_id UUID,
+    agent_key VARCHAR(100),
+    method VARCHAR(10),
+    path VARCHAR(500),
+    status_code INTEGER,
+    request_body JSONB,
+    response_summary TEXT,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    duration_ms FLOAT
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_logs_created_at ON service_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_service_logs_session_id ON service_logs(session_id);
+CREATE INDEX IF NOT EXISTS idx_service_logs_agent_key ON service_logs(agent_key);
+CREATE INDEX IF NOT EXISTS idx_service_logs_log_type ON service_logs(log_type);
+

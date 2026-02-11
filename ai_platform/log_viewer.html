@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Log Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased">
+    <div class="flex flex-col h-screen overflow-hidden">
+        <!-- Header -->
+        <header class="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+            <h1 class="text-xl font-semibold tracking-tight">Service Log Viewer</h1>
+            <a href="/monitoring/dashboard" class="text-sm text-blue-400 hover:text-blue-300">← Trace Dashboard</a>
+        </header>
+
+        <!-- Filter bar -->
+        <div class="px-6 py-4 bg-gray-900/50 border-b border-gray-800 space-y-3 flex-shrink-0">
+            <div class="flex flex-wrap gap-3 items-end">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Log type</label>
+                    <select id="filter-type" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[140px]">
+                        <option value="">All</option>
+                        <option value="api_request">api_request</option>
+                        <option value="trace">trace</option>
+                        <option value="conversation">conversation</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Session ID</label>
+                    <input type="text" id="filter-session" placeholder="UUID..." class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Agent</label>
+                    <input type="text" id="filter-agent" placeholder="e.g. orchestrator" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[140px]">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">From date</label>
+                    <input type="datetime-local" id="filter-from" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">To date</label>
+                    <input type="datetime-local" id="filter-to" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Search</label>
+                    <input type="text" id="filter-search" placeholder="Search body/summary..." class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[180px]">
+                </div>
+                <div class="flex gap-2">
+                    <button id="btn-apply" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition">Apply</button>
+                    <button id="btn-reset" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-md text-sm font-medium transition">Reset</button>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-400">Sort</label>
+                    <select id="sort-order" class="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                        <option value="desc">Newest first</option>
+                        <option value="asc">Oldest first</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-400">Page size</label>
+                    <select id="page-size" class="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+                <button id="btn-export" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-sm font-medium transition">Export CSV</button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats-bar" class="px-6 py-2 bg-gray-900/30 border-b border-gray-800 text-sm text-gray-400 flex-shrink-0">
+            <span id="stats-text">—</span>
+        </div>
+
+        <!-- Table -->
+        <div class="flex-1 overflow-auto px-6 py-4">
+            <table class="w-full text-sm border-collapse">
+                <thead class="sticky top-0 bg-gray-900 z-10">
+                    <tr class="text-left text-gray-400 border-b border-gray-700">
+                        <th class="pb-2 pr-4 font-medium">Time</th>
+                        <th class="pb-2 pr-4 font-medium">Type</th>
+                        <th class="pb-2 pr-4 font-medium">Session</th>
+                        <th class="pb-2 pr-4 font-medium">Agent</th>
+                        <th class="pb-2 pr-4 font-medium">Method</th>
+                        <th class="pb-2 pr-4 font-medium">Path</th>
+                        <th class="pb-2 pr-4 font-medium">Status</th>
+                        <th class="pb-2 pr-4 font-medium">Duration</th>
+                        <th class="pb-2 font-medium w-8"></th>
+                    </tr>
+                </thead>
+                <tbody id="log-rows">
+                    <tr><td colspan="9" class="py-8 text-center text-gray-500">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-6 py-3 bg-gray-900 border-t border-gray-800 flex-shrink-0">
+            <div class="text-sm text-gray-400">
+                Page <span id="page-num">1</span> of <span id="page-total">1</span>
+                (<span id="total-count">0</span> total)
+            </div>
+            <div class="flex gap-2">
+                <button id="btn-prev" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-gray-200">Prev</button>
+                <button id="btn-next" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-gray-200">Next</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expandable row template (hidden) -->
+    <template id="detail-row-tpl">
+        <tr class="detail-row border-b border-gray-800 bg-gray-900/80">
+            <td colspan="9" class="p-4">
+                <div class="text-xs font-mono text-gray-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto"></div>
+            </div>
+        </tr>
+    </template>
+
+    <script>
+        (function () {
+            const tbody = document.getElementById('log-rows');
+            const statsText = document.getElementById('stats-text');
+            const pageNum = document.getElementById('page-num');
+            const pageTotal = document.getElementById('page-total');
+            const totalCount = document.getElementById('total-count');
+            let currentPage = 1;
+            let total = 0;
+            let lastParams = {};
+
+            function toDateTimeLocal(d) {
+                if (!d) return '';
+                const dt = new Date(d);
+                const y = dt.getFullYear();
+                const m = String(dt.getMonth() + 1).padStart(2, '0');
+                const day = String(dt.getDate()).padStart(2, '0');
+                const h = String(dt.getHours()).padStart(2, '0');
+                const min = String(dt.getMinutes()).padStart(2, '0');
+                return `${y}-${m}-${day}T${h}:${min}`;
+            }
+
+            function buildParams() {
+                const type = document.getElementById('filter-type').value;
+                const session = document.getElementById('filter-session').value.trim();
+                const agent = document.getElementById('filter-agent').value.trim();
+                const from = document.getElementById('filter-from').value;
+                const to = document.getElementById('filter-to').value;
+                const search = document.getElementById('filter-search').value.trim();
+                const sort = document.getElementById('sort-order').value;
+                const limit = parseInt(document.getElementById('page-size').value, 10);
+
+                const params = new URLSearchParams();
+                params.set('page', String(currentPage));
+                params.set('limit', String(limit));
+                params.set('sort', sort);
+                if (type) params.set('log_type', type);
+                if (session) params.set('session_id', session);
+                if (agent) params.set('agent_key', agent);
+                if (from) params.set('from_date', from + ':00');
+                if (to) params.set('to_date', to + ':00');
+                if (search) params.set('search', search);
+                return params;
+            }
+
+            async function fetchLogs() {
+                const params = buildParams();
+                lastParams = Object.fromEntries(params);
+                try {
+                    const res = await fetch('/monitoring/logs?' + params.toString());
+                    if (!res.ok) throw new Error(res.statusText);
+                    return await res.json();
+                } catch (e) {
+                    console.error(e);
+                    return { items: [], total: 0, page: 1, limit: 10 };
+                }
+            }
+
+            async function fetchStats() {
+                try {
+                    const params = new URLSearchParams();
+                    const from = document.getElementById('filter-from').value;
+                    const to = document.getElementById('filter-to').value;
+                    if (from) params.set('from_date', from + ':00');
+                    if (to) params.set('to_date', to + ':00');
+                    const res = await fetch('/monitoring/logs/stats?' + params.toString());
+                    if (!res.ok) return;
+                    const stats = await res.json();
+                    const parts = [`Total: ${stats.total}`];
+                    if (Object.keys(stats.by_type || {}).length) {
+                        parts.push('By type: ' + Object.entries(stats.by_type).map(([k,v])=>`${k}=${v}`).join(', '));
+                    }
+                    if (Object.keys(stats.by_agent || {}).length) {
+                        parts.push('By agent: ' + Object.entries(stats.by_agent).map(([k,v])=>`${k}=${v}`).join(', '));
+                    }
+                    statsText.textContent = parts.join(' | ');
+                } catch (_) {
+                    statsText.textContent = '—';
+                }
+            }
+
+            function statusClass(code) {
+                if (!code) return 'text-gray-500';
+                if (code >= 200 && code < 300) return 'text-emerald-400';
+                if (code >= 400) return 'text-red-400';
+                return 'text-amber-400';
+            }
+
+            function typeClass(t) {
+                if (t === 'trace') return 'bg-purple-900/50 text-purple-300';
+                if (t === 'api_request') return 'bg-blue-900/50 text-blue-300';
+                if (t === 'conversation') return 'bg-emerald-900/50 text-emerald-300';
+                return 'bg-gray-700 text-gray-300';
+            }
+
+            function renderRow(item, index) {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer';
+                tr.dataset.index = index;
+                const time = item.created_at ? new Date(item.created_at).toLocaleString() : '—';
+                const sessionShort = item.session_id ? (item.session_id.slice(0, 8) + '…') : '—';
+                const statusSpan = item.status_code != null
+                    ? `<span class="${statusClass(item.status_code)}">${item.status_code}</span>`
+                    : '—';
+                const duration = item.duration_ms != null ? `${Math.round(item.duration_ms)}ms` : '—';
+                const typeSpan = `<span class="px-1.5 py-0.5 rounded text-xs ${typeClass(item.log_type)}">${item.log_type || '—'}</span>`;
+                tr.innerHTML = `
+                    <td class="py-2 pr-4 text-gray-400 whitespace-nowrap">${time}</td>
+                    <td class="py-2 pr-4">${typeSpan}</td>
+                    <td class="py-2 pr-4 text-gray-400 font-mono text-xs" title="${item.session_id || ''}">${sessionShort}</td>
+                    <td class="py-2 pr-4 text-gray-300">${item.agent_key || '—'}</td>
+                    <td class="py-2 pr-4 text-gray-400">${item.method || '—'}</td>
+                    <td class="py-2 pr-4 text-gray-300 truncate max-w-[200px]" title="${item.path || ''}">${item.path || '—'}</td>
+                    <td class="py-2 pr-4">${statusSpan}</td>
+                    <td class="py-2 pr-4 text-gray-400">${duration}</td>
+                    <td class="py-2"><span class="expand-icon text-gray-500">▼</span></td>
+                `;
+                tr._item = item;
+                return tr;
+            }
+
+            function renderDetailRow(item) {
+                const tpl = document.getElementById('detail-row-tpl');
+                const tr = tpl.content.cloneNode(true).querySelector('tr');
+                const details = {};
+                if (item.request_body) details.request_body = item.request_body;
+                if (item.response_summary) details.response_summary = item.response_summary;
+                if (item.metadata && Object.keys(item.metadata).length) details.metadata = item.metadata;
+                tr.querySelector('div').textContent = Object.keys(details).length
+                    ? JSON.stringify(details, null, 2)
+                    : '(no details)';
+                return tr;
+            }
+
+            function toggleExpand(tr) {
+                const idx = tr.dataset.index;
+                const next = tr.nextElementSibling;
+                const isDetail = next && next.classList.contains('detail-row');
+                if (isDetail) {
+                    next.remove();
+                    tr.querySelector('.expand-icon').textContent = '▼';
+                    return;
+                }
+                const detailRow = renderDetailRow(tr._item);
+                tr.after(detailRow);
+                tr.querySelector('.expand-icon').textContent = '▲';
+            }
+
+            async function load() {
+                tbody.innerHTML = '<tr><td colspan="9" class="py-8 text-center text-gray-500">Loading…</td></tr>';
+                const data = await fetchLogs();
+                total = data.total;
+                const totalPages = Math.max(1, Math.ceil(total / (data.limit || 25)));
+                currentPage = data.page;
+
+                pageNum.textContent = currentPage;
+                pageTotal.textContent = totalPages;
+                totalCount.textContent = total;
+
+                document.getElementById('btn-prev').disabled = currentPage <= 1;
+                document.getElementById('btn-next').disabled = currentPage >= totalPages;
+
+                tbody.innerHTML = '';
+                if (!data.items || data.items.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="py-8 text-center text-gray-500">No logs found.</td></tr>';
+                } else {
+                    data.items.forEach((item, i) => {
+                        const tr = renderRow(item, i);
+                        tr.addEventListener('click', () => toggleExpand(tr));
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                fetchStats();
+            }
+
+            document.getElementById('btn-apply').addEventListener('click', () => { currentPage = 1; load(); });
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                document.getElementById('filter-type').value = '';
+                document.getElementById('filter-session').value = '';
+                document.getElementById('filter-agent').value = '';
+                document.getElementById('filter-from').value = '';
+                document.getElementById('filter-to').value = '';
+                document.getElementById('filter-search').value = '';
+                document.getElementById('sort-order').value = 'desc';
+                document.getElementById('page-size').value = '25';
+                currentPage = 1;
+                load();
+            });
+            document.getElementById('sort-order').addEventListener('change', () => { currentPage = 1; load(); });
+            document.getElementById('page-size').addEventListener('change', () => { currentPage = 1; load(); });
+            document.getElementById('btn-prev').addEventListener('click', () => { if (currentPage > 1) { currentPage--; load(); } });
+            document.getElementById('btn-next').addEventListener('click', () => { currentPage++; load(); });
+
+            let searchDebounce;
+            document.getElementById('filter-search').addEventListener('input', () => {
+                clearTimeout(searchDebounce);
+                searchDebounce = setTimeout(() => { currentPage = 1; load(); }, 400);
+            });
+
+            document.getElementById('btn-export').addEventListener('click', async () => {
+                const params = new URLSearchParams(lastParams);
+                params.set('limit', '10000');
+                try {
+                    const res = await fetch('/monitoring/logs?' + params.toString());
+                    if (!res.ok) throw new Error(res.statusText);
+                    const data = await res.json();
+                    const items = data.items || [];
+                    const headers = ['created_at','log_type','session_id','agent_key','method','path','status_code','duration_ms','request_body','response_summary'];
+                    const lines = [headers.join(',')];
+                    items.forEach(r => {
+                        const row = headers.map(h => {
+                            let v = r[h];
+                            if (v != null && typeof v === 'object') v = JSON.stringify(v);
+                            if (typeof v === 'string') v = '"' + v.replace(/"/g, '""') + '"';
+                            return v ?? '';
+                        });
+                        lines.push(row.join(','));
+                    });
+                    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'service_logs_' + new Date().toISOString().slice(0,10) + '.csv';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                } catch (e) {
+                    console.error(e);
+                    alert('Export failed');
+                }
+            });
+
+            load();
+        })();
+    </script>
+</body>
+</html>

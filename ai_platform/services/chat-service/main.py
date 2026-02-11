@@ -1,10 +1,11 @@
 # services/chat-service/main.py
 import asyncio
-import os
-import uuid
-import logging
 import json
+import logging
+import os
+import re
 import time
+import uuid
 import datetime
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -13,18 +14,18 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from shared.database import SessionManager
 from shared.context_manager import ContextManager
-from shared.base_agent import AgentRequest, AgentConfig
-from agents.chat_agent import ChatAgent
-from agents.litellm_compat import rewrite_service_tier, create_litellm_compatible_client
+from shared.base_agent import AgentRequest
 from agents.config_loader import load_agent_config, UserDataField, ConfigLoader
+from agents.litellm_compat import create_litellm_compatible_client
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 # Import tools
-from tools.registry import ToolRegistry, DEFAULT_PERSONA_TOOLS
+from tools.registry import ToolRegistry
 from tools.knowledge_base import KnowledgeBaseTool, GetLearningResourceTool
 from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
@@ -38,6 +39,10 @@ from monitoring import trace_collector
 from integrations.safiranayeha_client import SafiranayehaClient, set_safiranayeha_client
 from integrations.path_router import PathRouter, get_path_router, set_path_router
 from utils.crypto import decrypt_safiranayeha_param
+
+# Import conversation summarization
+from chains.conversation_summarizer_chain import ConversationSummarizerChain
+from shared.conversation_context_builder import build_history_context
 
 load_dotenv()
 
@@ -79,6 +84,56 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# =============================================================================
+# API Request Logging Middleware
+# =============================================================================
+
+async def api_request_logging_middleware(request, call_next):
+    """Log API requests to service_logs for the log viewer."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start) * 1000
+    # Skip logging for health/docs/monitoring to avoid blocking when DB is unreachable
+    skip_paths = ("/health", "/health/stream", "/monitoring/logs", "/monitoring/logs/stats")
+    if request.url.path in skip_paths or request.url.path.startswith("/doc") or request.url.path.startswith("/openapi") or request.url.path.startswith("/redoc"):
+        return response
+    log_svc = getattr(request.app.state, "log_service", None)
+    if log_svc:
+        agent_key = None
+        m = re.match(r"^/chat/([^/]+)", request.url.path)
+        if m:
+            agent_key = m.group(1)
+        m2 = re.match(r"^/session/([^/]+)/", request.url.path)
+        session_id_str = m2.group(1) if m2 else None
+        sid = None
+        if session_id_str:
+            try:
+                sid = uuid.UUID(session_id_str)
+            except ValueError:
+                pass
+
+        async def _log():
+            try:
+                await log_svc.append_log(
+                    log_type="api_request",
+                    session_id=sid,
+                    agent_key=agent_key,
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=response.status_code,
+                    duration_ms=round(duration_ms, 2),
+                )
+            except Exception:
+                pass
+
+        asyncio.create_task(_log())  # Non-blocking; don't await
+    return response
+
+@app.middleware("http")
+async def add_api_request_logging(request, call_next):
+    return await api_request_logging_middleware(request, call_next)
 
 
 # =============================================================================
@@ -168,16 +223,25 @@ def _agent_debug_log(hypothesis_id: str, location: str, message: str, data: dict
 # #endregion
 
 # Global managers and clients
-AGENTS = {}
-AGENT_CONFIGS = {}  # Store configs for each agent for dynamic field management
+AGENT_CONFIGS = {}  # Store configs for each agent (chain-only)
 session_manager = None
 context_manager = None
 http_client: httpx.AsyncClient | None = None
-agent_full_config = None  # Default agent config (backwards compatible)
+agent_full_config = None  # Default agent config for field management
 safiranayeha_client: SafiranayehaClient | None = None  # Safiranayeha API client
 path_router: PathRouter | None = None  # Path-to-agent router
-chain_executor = None  # LangChain chain-based executor (when EXECUTOR_MODE=langchain_chain)
-EXECUTOR_MODE = os.getenv("EXECUTOR_MODE", "pydantic_ai")  # pydantic_ai | langchain_chain
+chain_executor = None  # LangChain chain-based executor (always used)
+conversation_summarizer = None  # For long-session summarization
+log_service = None  # For persisting logs to DB
+
+# Static tool mapping for /personas (chain uses tools internally)
+PERSONA_TOOL_NAMES = {
+    "orchestrator": ["route_to_agent"],
+    "guest_faq": ["knowledge_base_query"],
+    "action_expert": ["query_konesh", "knowledge_base_query"],
+    "journey_register": ["query_konesh", "knowledge_base_query"],
+    "rewards_invite": ["knowledge_base_query"],
+}
 
 
 async def _db_connect_test(engine):
@@ -185,21 +249,9 @@ async def _db_connect_test(engine):
     async with engine.begin() as conn:
         await conn.execute(text("SELECT 1"))
 
-
-def register_agent(key: str, agent_class, config: dict, full_config=None):
-    """Register agent with configuration"""
-    agent_config = AgentConfig(**config)
-    if full_config and agent_class == ChatAgent:
-        agent = agent_class(agent_config, context_manager, full_config)
-        AGENT_CONFIGS[key] = full_config
-    else:
-        agent = agent_class(agent_config, context_manager)
-    AGENTS[key] = agent
-    return agent
-
 @app.on_event("startup")
 async def startup():
-    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor
+    global session_manager, context_manager, http_client, agent_full_config, safiranayeha_client, path_router, chain_executor, conversation_summarizer, log_service
 
     logging.info("Starting chat service initialization...")
 
@@ -260,13 +312,6 @@ async def startup():
     http_client = create_litellm_compatible_client()
     logging.info("✅ Created shared HTTP client with LiteLLM compatibility hooks")
 
-    # Base config for all agents
-    base_config = {
-        "api_key": os.getenv("LITELLM_API_KEY"),
-        "base_url": os.getenv("LITELLM_BASE_URL", "https://api.avalai.ir/v1")
-    }
-    default_model = os.getenv("LITELLM_MODEL", "gemini-2.5-flash-lite-preview-09-2025")
-
     # Load default agent configuration from YAML
     config_file = os.getenv("AGENT_CONFIG_FILE", "agent_config.yaml")
     try:
@@ -276,11 +321,6 @@ async def startup():
         logging.error(f"Failed to load agent config from {config_file}: {e}")
         logging.info("Falling back to default config")
         agent_full_config = load_agent_config("agent_config.yaml")
-
-    # Get model config from loaded configuration
-    model_config = agent_full_config.model_config
-    temperature = model_config.get("temperature", 0.7)
-    max_turns = model_config.get("max_turns", 12)
 
     # ==========================================================================
     # Initialize Tool Registry with available tools
@@ -298,87 +338,29 @@ async def startup():
     
     logging.info(f"Registered {len(ToolRegistry.list_tools())} tools: {ToolRegistry.list_tools()}")
     
-    # Define which tools each persona can use
-    persona_tool_assignments = {
-        "orchestrator": ["route_to_agent"],  # Orchestrator routing tool
-        "guest_faq": ["knowledge_base_query"],  # FAQ agent - minimal tools
-        "action_expert": ["query_konesh", "knowledge_base_query"],  # Action expert tools
-        "journey_register": ["query_konesh", "knowledge_base_query"],  # Journey agent - needs KB for guidance
-        "rewards_invite": ["knowledge_base_query"],  # Rewards agent - basic tools
-    }
-    
     # ==========================================================================
-    # Load all personality configs and register multiple agents
+    # Load all personality configs for chain executor
     # ==========================================================================
     loader = ConfigLoader()
     available_configs = loader.list_available_configs()
-    
-    # Define persona mappings (key -> config file)
-    # سفیران آیه‌ها specialized agents
+
     persona_configs = {
-        "orchestrator": "personalities/orchestrator.yaml",  # Context Router
-        "guest_faq": "personalities/guest_faq.yaml",  # Guest/FAQ Agent
-        "action_expert": "personalities/action_expert.yaml",  # Action Expert (replaces konesh_expert)
-        "journey_register": "personalities/journey_register.yaml",  # Journey & Registration Agent
-        "rewards_invite": "personalities/rewards_invite.yaml",  # Rewards & Invitation Agent
+        "orchestrator": "personalities/orchestrator.yaml",
+        "guest_faq": "personalities/guest_faq.yaml",
+        "action_expert": "personalities/action_expert.yaml",
+        "journey_register": "personalities/journey_register.yaml",
+        "rewards_invite": "personalities/rewards_invite.yaml",
     }
-    
-    # Register each persona as a separate agent with their tools
-    # Note: orchestrator will get router_tool added later (it needs AGENTS dict to exist first)
+
     for agent_key, config_path in persona_configs.items():
         try:
             persona_config = load_agent_config(config_path)
-            persona_model_config = persona_config.model_config
-            
-            # Get tools for this persona
-            tool_names = persona_tool_assignments.get(agent_key, [])
-            persona_tools = [ToolRegistry.get_tool(name) for name in tool_names if ToolRegistry.get_tool(name)]
-            
-            # Create agent config
-            agent_config = AgentConfig(
-                name=persona_config.agent_name,
-                model=default_model,
-                max_turns=persona_model_config.get("max_turns", max_turns),
-                temperature=persona_model_config.get("temperature", temperature),
-                extra={
-                    **base_config,
-                    "system_prompt": persona_config.get_complete_system_prompt()
-                }
-            )
-            
-            # Create agent with custom tools
-            agent = ChatAgent(agent_config, context_manager, persona_config, custom_tools=persona_tools)
-            AGENTS[agent_key] = agent
             AGENT_CONFIGS[agent_key] = persona_config
-            
-            logging.info(f"Registered agent '{agent_key}': {persona_config.agent_name} with {len(persona_tools)} tools")
+            logging.info(f"Loaded config for '{agent_key}': {persona_config.agent_name}")
         except Exception as e:
             logging.warning(f"Failed to load persona '{agent_key}' from {config_path}: {e}")
             import traceback
             traceback.print_exc()
-            # Skip this persona but continue with others
-
-    # Register AgentRouterTool for orchestrator (must be AFTER all agents are in AGENTS dict, but BEFORE initialization)
-    from tools.agent_router import AgentRouterTool
-    router_tool = AgentRouterTool(AGENTS, context_manager)
-    ToolRegistry.register_tool(router_tool)
-    
-    # Add router tool to orchestrator's custom tools BEFORE initialization
-    if "orchestrator" in AGENTS:
-        orchestrator_agent = AGENTS["orchestrator"]
-        if not hasattr(orchestrator_agent, 'custom_tools') or orchestrator_agent.custom_tools is None:
-            orchestrator_agent.custom_tools = []
-        orchestrator_agent.custom_tools.append(router_tool)
-        logging.info(f"Added route_to_agent tool to orchestrator before initialization")
-    
-    # Initialize all agents with shared http_client
-    # This ensures all agents use the same client with LiteLLM compatibility hooks
-    # and benefit from connection pooling and consistent configuration
-    for key, agent in AGENTS.items():
-        await agent.initialize(http_client=http_client)
-        logging.debug(f"Initialized agent '{key}' with shared http_client")
-
-    logging.info(f"Initialized {len(AGENTS)} agents: {list(AGENTS.keys())}")
 
     # ==========================================================================
     # Initialize Safiranayeha Integration
@@ -395,23 +377,34 @@ async def startup():
     set_path_router(path_router)
     logging.info(f"Path router initialized with {len(path_router.mappings)} mappings")
 
-    # Initialize chain executor when EXECUTOR_MODE=langchain_chain
-    if EXECUTOR_MODE == "langchain_chain":
-        from chains.chain_executor import ChainExecutor
-        kb_tool = ToolRegistry.get_tool("knowledge_base_query")
-        konesh_tool = ToolRegistry.get_tool("query_konesh")
-        if kb_tool and AGENT_CONFIGS:
-            chain_executor = ChainExecutor(
-                agent_configs=AGENT_CONFIGS,
-                kb_tool=kb_tool,
-                konesh_tool=konesh_tool,
-            )
-            logging.info("✅ Chain executor initialized (EXECUTOR_MODE=langchain_chain)")
-        else:
-            logging.warning("Chain executor not initialized: missing kb_tool or AGENT_CONFIGS")
+    # Initialize conversation summarizer for long sessions
+    conversation_summarizer = ConversationSummarizerChain()
+    logging.info("Conversation summarizer initialized")
 
-    # Debug log: startup completed and agents registered
-    logging.info(f"Chat service startup completed successfully! Loaded {len(AGENTS)} agents: {list(AGENTS.keys())}")
+    # Initialize log service for log viewer
+    from logging_service import LogService
+    log_service = LogService(session_manager.engine)
+    logging.info("Log service initialized")
+
+    # Initialize chain executor (always chain-only)
+    from chains.chain_executor import ChainExecutor
+    kb_tool = ToolRegistry.get_tool("knowledge_base_query")
+    konesh_tool = ToolRegistry.get_tool("query_konesh")
+    if kb_tool and AGENT_CONFIGS:
+        chain_executor = ChainExecutor(
+            agent_configs=AGENT_CONFIGS,
+            kb_tool=kb_tool,
+            konesh_tool=konesh_tool,
+            log_service=log_service,
+        )
+        logging.info("✅ Chain executor initialized")
+    else:
+        logging.warning("Chain executor not initialized: missing kb_tool or AGENT_CONFIGS")
+
+    logging.info(f"Chat service startup completed. Loaded {len(AGENT_CONFIGS)} agent configs: {list(AGENT_CONFIGS.keys())}")
+
+    # Store log service for middleware access
+    app.state.log_service = log_service
 
     # Set startup completion flag
     app.state.startup_completed = True
@@ -420,7 +413,7 @@ async def startup():
         hypothesis_id="H1",
         location="services/chat-service/main.py:startup",
         message="startup completed",
-        data={"agents": list(AGENTS.keys())},
+        data={"agent_configs": list(AGENT_CONFIGS.keys())},
     )
 
 @app.get("/health", tags=["Health"])
@@ -432,16 +425,15 @@ async def health():
     Service is considered healthy if it's running and can accept requests,
     regardless of agent loading status.
     """
-    agents_list = list(AGENTS.keys()) if AGENTS else []
+    agents_list = list(AGENT_CONFIGS.keys()) if AGENT_CONFIGS else []
 
     return {
-        "status": "healthy",  # Always healthy if service is responding
+        "status": "healthy",
         "service": "chat",
         "agents": agents_list,
         "agent_count": len(agents_list),
-        "executor_mode": EXECUTOR_MODE,
-        "chain_executor_ready": chain_executor is not None if EXECUTOR_MODE == "langchain_chain" else None,
-        "message": "Service is running and ready to accept requests"
+        "chain_executor_ready": chain_executor is not None,
+        "message": "Service is running and ready to accept requests",
     }
 
 @app.get("/health/stream", tags=["Health"])
@@ -474,19 +466,16 @@ async def list_agents():
     Returns information about each agent including name, model, capabilities, and max turns.
     """
     result = {}
-    for key, agent in AGENTS.items():
+    for key, config in AGENT_CONFIGS.items():
+        model_config = getattr(config, "model_config", {}) or {}
         agent_info = {
-            "name": agent.config.name,
-            "model": agent.config.model,
-            "capabilities": agent.get_capabilities(),
-            "max_turns": agent.config.max_turns
+            "name": config.agent_name,
+            "model": model_config.get("default_model", "chain"),
+            "capabilities": ["chat", "conversation", "qa", "user_context_extraction"],
+            "max_turns": model_config.get("max_turns", 12),
+            "description": config.description,
+            "is_persona": True,
         }
-        # Add persona description if available
-        if key in AGENT_CONFIGS:
-            agent_info["description"] = AGENT_CONFIGS[key].description
-            agent_info["is_persona"] = True
-        else:
-            agent_info["is_persona"] = False
         result[key] = agent_info
     return result
 
@@ -496,10 +485,7 @@ async def list_personas():
     """List all available chat personas."""
     personas = []
     for key, config in AGENT_CONFIGS.items():
-        # Get tools for this persona
-        agent = AGENTS.get(key)
-        tools = [t.name for t in agent.custom_tools] if agent and hasattr(agent, 'custom_tools') else []
-        
+        tools = PERSONA_TOOL_NAMES.get(key, [])
         personas.append({
             "key": key,
             "name": config.agent_name,
@@ -511,7 +497,7 @@ async def list_personas():
     return {
         "count": len(personas),
         "personas": personas,
-        "usage": "POST /chat/{persona_key} with your message"
+        "usage": "POST /chat/{persona_key} with your message",
     }
 
 
@@ -694,7 +680,7 @@ async def initialize_chat(request: ChatInitRequest):
         logging.info(f"Mapped path '{path}' to agent '{agent_key}'")
 
         # Verify agent exists
-        if agent_key not in AGENTS:
+        if agent_key not in AGENT_CONFIGS:
             logging.warning(f"Agent '{agent_key}' not found, falling back to guest_faq")
             agent_key = "guest_faq"
 
@@ -804,18 +790,10 @@ async def chat(agent_key: str, request: AgentRequest):
     - Direct routing to the specified agent
     - No orchestrator involvement (path-based routing handled at initialization)
     """
-    # Resolve executor: chain-based or Pydantic AI
-    use_chain = (
-        EXECUTOR_MODE == "langchain_chain"
-        and chain_executor is not None
-        and agent_key in AGENT_CONFIGS
-    )
-    if use_chain:
-        executor = chain_executor
-    else:
-        if agent_key not in AGENTS:
-            raise HTTPException(404, f"Agent '{agent_key}' not found")
-        executor = AGENTS[agent_key]
+    # Chain-only executor
+    if chain_executor is None or agent_key not in AGENT_CONFIGS:
+        raise HTTPException(404, f"Agent '{agent_key}' not found")
+    executor = chain_executor
     
     # Handle session
     if request.session_id:
@@ -859,14 +837,26 @@ async def chat(agent_key: str, request: AgentRequest):
     # Load session history
     try:
         session = await session_manager.get_session(sid)
-        history = session["messages"] if session else []
-        logging.info(f"Loaded history for session {sid}: {len(history)} messages")
+        messages = session["messages"] if session else []
+        session_metadata = session.get("metadata", {}) if session else {}
+        logging.info(f"Loaded history for session {sid}: {len(messages)} messages")
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
-        # Continue with empty history if database is unavailable
-        # This allows the service to work even if database has temporary issues
-        history = []
+        messages = []
+        session_metadata = {}
         logging.warning("Continuing with empty history due to database error")
+
+    # Build history context (summarization for long sessions)
+    effective_history = messages
+    summary_block = ""
+    updated_metadata = session_metadata
+    if conversation_summarizer:
+        try:
+            effective_history, summary_block, updated_metadata = await build_history_context(
+                messages, session_metadata, conversation_summarizer
+            )
+        except Exception as e:
+            logging.warning(f"Conversation context build failed: {e}")
 
     # Load shared context (includes any user_data just saved)
     shared_context = {}
@@ -885,7 +875,9 @@ async def chat(agent_key: str, request: AgentRequest):
 
     # Process with executor (history + structured shared context)
     request.session_id = str(sid)
-    response = await executor.process(request, history, shared_context, agent_key=agent_key)
+    response = await executor.process(
+        request, effective_history, shared_context, agent_key=agent_key, summary_block=summary_block
+    )
 
     # Debug log: after agent processing, before persistence
     _agent_debug_log(
@@ -894,7 +886,7 @@ async def chat(agent_key: str, request: AgentRequest):
         message="chat processed",
         data={
             "agent_key": agent_key,
-            "history_len": len(history),
+            "history_len": len(messages),
         },
     )
     
@@ -911,13 +903,14 @@ async def chat(agent_key: str, request: AgentRequest):
             logging.warning("Context not persisted due to database error, but response sent successfully")
     
     # Save session (agent should return updated history in metadata)
-    new_history = response.metadata.get("history", history)
+    new_history = response.metadata.get("history", messages)
+    save_metadata = {**updated_metadata, "last_agent": agent_key}
     try:
         await session_manager.upsert_session(
-            sid, 
-            new_history, 
+            sid,
+            new_history,
             agent_key,
-            metadata={"last_agent": agent_key}
+            metadata=save_metadata,
         )
     except Exception as e:
         logging.error(f"Database connection error when saving session {sid}: {e}")
@@ -1094,7 +1087,7 @@ async def get_field(field_name: str):
 @app.post("/config/fields", tags=["Config"])
 async def add_field(request: FieldCreateRequest):
     """Add a new user data field at runtime."""
-    global agent_full_config, AGENTS
+    global agent_full_config
     if not agent_full_config:
         raise HTTPException(500, "Agent config not loaded")
     
@@ -1123,14 +1116,7 @@ async def add_field(request: FieldCreateRequest):
     
     # Add to config
     agent_full_config.user_data_fields.append(new_field)
-    
-    # Update the default agent's field_map and reinitialize tools
-    if "default" in AGENTS:
-        AGENTS["default"].field_map = agent_full_config.build_field_map()
-        AGENTS["default"].agent_config = agent_full_config
-        # Reinitialize to update tool description
-        await AGENTS["default"].reinitialize_tools()
-    
+
     logging.info(f"Added new field: {request.field_name} -> {request.normalized_name}")
     
     return {
@@ -1142,14 +1128,13 @@ async def add_field(request: FieldCreateRequest):
             "data_type": new_field.data_type,
             "enabled": new_field.enabled,
         },
-        "tools_reinitialized": True
     }
 
 
 @app.put("/config/fields/{field_name}", tags=["Config"])
 async def update_field(field_name: str, request: FieldUpdateRequest):
     """Update an existing user data field."""
-    global agent_full_config, AGENTS
+    global agent_full_config
     if not agent_full_config:
         raise HTTPException(500, "Agent config not loaded")
     
@@ -1178,11 +1163,7 @@ async def update_field(field_name: str, request: FieldUpdateRequest):
         field.accumulate = request.accumulate
     if request.validation is not None:
         field.validation = request.validation
-    
-    # Update the default agent's field_map
-    if "default" in AGENTS:
-        AGENTS["default"].field_map = agent_full_config.build_field_map()
-    
+
     logging.info(f"Updated field: {field_name}")
     
     return {
@@ -1206,7 +1187,7 @@ async def delete_field(field_name: str, permanent: bool = False):
     - permanent=false (default): Only disables the field
     - permanent=true: Permanently removes the field
     """
-    global agent_full_config, AGENTS
+    global agent_full_config
     if not agent_full_config:
         raise HTTPException(500, "Agent config not loaded")
     
@@ -1230,19 +1211,14 @@ async def delete_field(field_name: str, permanent: bool = False):
         agent_full_config.user_data_fields[field_idx].enabled = False
         logging.info(f"Disabled field: {field_name}")
         status = "disabled"
-    
-    # Update the default agent's field_map and reinitialize tools
-    if "default" in AGENTS:
-        AGENTS["default"].field_map = agent_full_config.build_field_map()
-        await AGENTS["default"].reinitialize_tools()
-    
-    return {"status": status, "field_name": field_name, "tools_reinitialized": True}
+
+    return {"status": status, "field_name": field_name}
 
 
 @app.post("/config/fields/{field_name}/enable", tags=["Config"])
 async def enable_field(field_name: str):
     """Re-enable a disabled field."""
-    global agent_full_config, AGENTS
+    global agent_full_config
     if not agent_full_config:
         raise HTTPException(500, "Agent config not loaded")
     
@@ -1250,8 +1226,6 @@ async def enable_field(field_name: str):
     for f in agent_full_config.user_data_fields:
         if f.field_name.lower() == field_name.lower():
             f.enabled = True
-            if "default" in AGENTS:
-                AGENTS["default"].field_map = agent_full_config.build_field_map()
             return {"status": "enabled", "field_name": field_name}
     
     raise HTTPException(404, f"Field '{field_name}' not found")
@@ -1263,17 +1237,12 @@ async def reload_config():
     Reload configuration from YAML file.
     This will reset all runtime changes and reload from disk.
     """
-    global agent_full_config, AGENTS
-    
+    global agent_full_config
+
     config_file = os.getenv("AGENT_CONFIG_FILE", "agent_config.yaml")
     try:
         agent_full_config = load_agent_config(config_file)
-        
-        # Update agents with new config
-        if "default" in AGENTS:
-            AGENTS["default"].agent_config = agent_full_config
-            AGENTS["default"].field_map = agent_full_config.build_field_map()
-        
+
         logging.info(f"Reloaded config: {agent_full_config.agent_name} v{agent_full_config.agent_version}")
         
         return {
@@ -1419,6 +1388,61 @@ async def clear_traces():
     }
 
 
+# =============================================================================
+# Service Logs API (for Log Viewer)
+# =============================================================================
+
+@app.get("/monitoring/logs", tags=["Monitoring"])
+async def get_service_logs(
+    page: int = 1,
+    limit: int = 50,
+    session_id: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    log_type: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    sort: str = "desc",
+    search: Optional[str] = None,
+):
+    """
+    Query persisted service logs with filters and pagination.
+
+    Supports filtering by session_id, agent_key, log_type, date range, and text search.
+    """
+    log_svc = getattr(app.state, "log_service", None)
+    if not log_svc:
+        return {"items": [], "total": 0, "page": page, "limit": limit}
+    try:
+        return await log_svc.get_logs(
+            page=page,
+            limit=limit,
+            session_id=session_id,
+            agent_key=agent_key,
+            log_type=log_type,
+            from_date=from_date,
+            to_date=to_date,
+            sort=sort,
+            search=search,
+        )
+    except ProgrammingError:
+        return {"items": [], "total": 0, "page": page, "limit": limit}
+
+
+@app.get("/monitoring/logs/stats", tags=["Monitoring"])
+async def get_service_logs_stats(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    """Get aggregate stats for service logs: count by type, by agent."""
+    log_svc = getattr(app.state, "log_service", None)
+    if not log_svc:
+        return {"total": 0, "by_type": {}, "by_agent": {}}
+    try:
+        return await log_svc.get_stats(from_date=from_date, to_date=to_date)
+    except ProgrammingError:
+        return {"total": 0, "by_type": {}, "by_agent": {}}
+
+
 @app.on_event("shutdown")
 async def shutdown():
     global http_client
@@ -1442,20 +1466,13 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     import asyncio
     
     logging.info(f"Streaming request received for agent_key: {agent_key}, session_id: {request.session_id}")
-    logging.info(f"Available agents: {list(AGENTS.keys())}")
-    
-    # Resolve executor: chain-based or Pydantic AI
-    use_chain = (
-        EXECUTOR_MODE == "langchain_chain"
-        and chain_executor is not None
-        and agent_key in AGENT_CONFIGS
-    )
-    if use_chain:
-        executor = chain_executor
-    else:
-        if agent_key not in AGENTS:
-            raise HTTPException(404, f"Agent '{agent_key}' not found")
-        executor = AGENTS[agent_key]
+    logging.info(f"Available agents: {list(AGENT_CONFIGS.keys())}")
+
+    if agent_key not in AGENT_CONFIGS:
+        raise HTTPException(404, f"Agent '{agent_key}' not found")
+    if chain_executor is None:
+        raise HTTPException(503, "Chain executor not initialized")
+    executor = chain_executor
     
     # Handle session
     if request.session_id:
@@ -1466,17 +1483,29 @@ async def chat_stream(agent_key: str, request: AgentRequest):
     else:
         sid = uuid.uuid4()
     
-    # Load session history and context (same as regular endpoint)
+    # Load session history and context
     try:
         session = await session_manager.get_session(sid)
-        history = session["messages"] if session else []
+        messages = session["messages"] if session else []
+        session_metadata = session.get("metadata", {}) if session else {}
     except Exception as e:
         logging.error(f"Database connection error when loading session {sid}: {e}")
-        # Continue with empty history if database is unavailable
-        # This allows the service to work even if database has temporary issues
-        history = []
+        messages = []
+        session_metadata = {}
         logging.warning("Continuing with empty history due to database error")
-    
+
+    # Build history context (summarization for long sessions)
+    effective_history = messages
+    summary_block = ""
+    updated_metadata = session_metadata
+    if conversation_summarizer:
+        try:
+            effective_history, summary_block, updated_metadata = await build_history_context(
+                messages, session_metadata, conversation_summarizer
+            )
+        except Exception as e:
+            logging.warning(f"Conversation context build failed: {e}")
+
     shared_context = {}
     if request.use_shared_context:
         try:
@@ -1504,7 +1533,9 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             # Process the request
             logging.info(f"Processing request with agent: {agent_key}")
             try:
-                response = await executor.process(request, history, shared_context, agent_key=agent_key)
+                response = await executor.process(
+                    request, effective_history, shared_context, agent_key=agent_key, summary_block=summary_block
+                )
                 logging.info(f"Agent processing completed, output length: {len(response.output) if response else 0}")
                 
                 if not response:
@@ -1543,12 +1574,13 @@ async def chat_stream(agent_key: str, request: AgentRequest):
             # Save session and context (same as regular endpoint)
             if response:
                 try:
-                    new_history = response.metadata.get("history", history)
+                    new_history = response.metadata.get("history", messages)
+                    save_metadata = {**updated_metadata, "last_agent": agent_key}
                     await session_manager.upsert_session(
                         sid,
                         new_history,
                         agent_key,
-                        metadata={"last_agent": agent_key}
+                        metadata=save_metadata,
                     )
                     if response.context_updates:
                         try:

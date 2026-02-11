@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 def get_dynamic_field_instructions(
     agent_config: Any,
-    executor_mode: str = "pydantic_ai"
+    executor_mode: str = "langchain_chain"
 ) -> str:
     """
     Build dynamic field extraction instructions based on enabled fields.
@@ -39,13 +39,13 @@ def build_system_prompt(
     agent_config: Any,
     user_info: Dict[str, Any],
     last_user_messages: List[Dict[str, Any]],
-    executor_mode: str = "pydantic_ai",
+    executor_mode: str = "langchain_chain",
     agent_key: Optional[str] = None,
 ) -> str:
     """
     Build context-aware system prompt using configuration.
 
-    Shared between ChatAgent (Pydantic AI) and ChainExecutor (LangChain).
+    Shared by ChainExecutor (LangChain).
 
     Args:
         agent_config: Agent configuration with context_display, recent_messages_context,

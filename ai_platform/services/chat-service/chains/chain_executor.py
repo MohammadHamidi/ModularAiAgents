@@ -7,14 +7,20 @@ import datetime
 import logging
 import re
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from shared.base_agent import AgentRequest, AgentResponse
 from shared.prompt_builder import build_context_summary
+from shared.suggestion_utils import (
+    convert_suggestions_to_user_perspective,
+    ensure_suggestions_section,
+)
 
 from chains.router_chain import RouterChain
 from chains.specialist_chain import SpecialistChain
 from chains.entity_extraction_chain import EntityExtractionChain
+from monitoring import ExecutionTrace, trace_collector
 
 logger = logging.getLogger(__name__)
 
@@ -69,16 +75,19 @@ class ChainExecutor:
         agent_configs: Dict[str, Any],
         kb_tool: Any,
         konesh_tool: Optional[Any] = None,
+        log_service: Optional[Any] = None,
     ):
         """
         Args:
             agent_configs: {agent_key: AgentConfig} e.g. from AGENT_CONFIGS
             kb_tool: KnowledgeBaseTool instance
             konesh_tool: Optional KoneshQueryTool
+            log_service: Optional LogService for persisting traces
         """
         self.agent_configs = agent_configs
         self.kb_tool = kb_tool
         self.konesh_tool = konesh_tool
+        self.log_service = log_service
         self.router = RouterChain()
         self._specialists: Dict[str, SpecialistChain] = {}
 
@@ -105,6 +114,7 @@ class ChainExecutor:
         history: Optional[List[Dict[str, Any]]] = None,
         shared_context: Optional[Dict[str, Any]] = None,
         agent_key: str = "unknown",
+        summary_block: str = "",
     ) -> AgentResponse:
         """
         Process request using chain-based pipeline.
@@ -113,9 +123,12 @@ class ChainExecutor:
         start = time.time()
         history = history or []
         shared_context = shared_context or {}
+        routed_from_orchestrator = False
+        original_agent_key = agent_key
 
         # Resolve agent_key via router if orchestrator
         if agent_key == "orchestrator":
+            routed_from_orchestrator = True
             hist_summary = ""
             if history:
                 last = history[-2:] if len(history) >= 2 else history
@@ -148,8 +161,10 @@ class ChainExecutor:
         extractor = EntityExtractionChain(config)
         context_updates = await extractor.invoke(request.message)
 
-        # Build context block for user message
+        # Build context block for user message (includes optional summary)
         context_block = build_context_summary(config, shared_context)
+        if summary_block:
+            context_block = (context_block or "") + summary_block
 
         # Recent user messages
         recent_config = getattr(config, "recent_messages_context", {}) or {}
@@ -160,18 +175,82 @@ class ChainExecutor:
         ][-count:]
 
         # Run specialist chain
-        output = await specialist.run(
+        run_result = await specialist.run(
             user_message=request.message,
             user_info=shared_context,
             last_user_messages=last_user,
             history=history,
             context_block=context_block,
         )
+        output = run_result["output"]
+        system_prompt = run_result.get("system_prompt", "")
+        kb_context = run_result.get("kb_context", "")
+        user_prompt = run_result.get("user_prompt", "")
 
-        # Post-process
+        # Post-process: Konesh scope, unwanted text
         output = _post_process_output(
             output, agent_key, agent_name, request.message
         )
+
+        # Post-process: suggestions
+        post_processing_applied = []
+        out_before_conv = output
+        output = convert_suggestions_to_user_perspective(output)
+        if output != out_before_conv:
+            post_processing_applied.append("convert_suggestions_perspective")
+        out_before_ensure = output
+        output = ensure_suggestions_section(
+            output, request.message, agent_key
+        )
+        if output != out_before_ensure:
+            post_processing_applied.append("ensure_suggestions_section")
+
+        # Build trace for monitoring
+        elapsed_ms = (time.time() - start) * 1000
+        trace = ExecutionTrace(
+            session_id=request.session_id or "no-session",
+            agent_key=agent_key,
+            agent_name=agent_name,
+            timestamp=datetime.datetime.now(),
+            system_prompt=system_prompt,
+            user_message_original=request.message,
+            user_message_final=user_prompt[:500] if user_prompt else request.message,
+            shared_context=shared_context,
+            message_history_count=len(history),
+            kb_queries=[{"query": request.message, "result_preview": kb_context[:500]}] if kb_context else [],
+            kb_results=[{"preview": kb_context[:500]}] if kb_context else [],
+            llm_input_full=user_prompt,
+            llm_output_raw=run_result.get("output", ""),
+            routing_decision={"routed": routed_from_orchestrator, "target_agent": agent_key} if routed_from_orchestrator else None,
+            final_response=output,
+            post_processing_applied=post_processing_applied,
+            execution_time_ms=elapsed_ms,
+        )
+        trace_collector.add_trace(trace)
+
+        # Persist trace to log service for log viewer
+        if self.log_service:
+            try:
+                sid = None
+                if request.session_id:
+                    try:
+                        sid = uuid.UUID(request.session_id)
+                    except ValueError:
+                        pass
+                await self.log_service.append_log(
+                    log_type="trace",
+                    session_id=sid,
+                    agent_key=agent_key,
+                    metadata={
+                        "agent_name": agent_name,
+                        "execution_time_ms": elapsed_ms,
+                        "routing_decision": trace.routing_decision,
+                    },
+                    duration_ms=elapsed_ms,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Log service append failed: {e}")
 
         # Build updated history
         now = datetime.datetime.utcnow().isoformat()
@@ -189,7 +268,6 @@ class ChainExecutor:
 
         model = getattr(config, "model_config", {}) or {}
         model_name = model.get("default_model") or "chain"
-        elapsed_ms = (time.time() - start) * 1000
         logger.info(f"ChainExecutor completed in {elapsed_ms:.0f}ms for {agent_key}")
 
         return AgentResponse(

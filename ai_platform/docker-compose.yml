@@ -24,8 +24,7 @@ services:
       MAX_SESSION_MESSAGES: ${MAX_SESSION_MESSAGES:-30}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-14400}
 
-      # Executor mode: pydantic_ai (default) or langchain_chain
-      EXECUTOR_MODE: ${EXECUTOR_MODE:-pydantic_ai}
+      # Chain-only executor (langchain_chain)
       
       # LightRAG Configuration
       LIGHTRAG_BASE_URL: ${LIGHTRAG_BASE_URL:-https://knowledgsafiran.pish.run/}

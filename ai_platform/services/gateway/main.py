@@ -80,6 +80,7 @@ CHAT_HTML_PATH = find_static_file("Chat.html")
 ICON_PATH = find_static_file("Icon.png")
 FAVICON_PATH = find_static_file("favicon.ico")
 MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
+LOG_VIEWER_PATH = find_static_file("log_viewer.html")
 
 
 # =============================================================================
@@ -191,6 +192,24 @@ async def serve_monitoring_dashboard():
         )
     else:
         raise HTTPException(status_code=404, detail="monitoring_dashboard.html not found")
+
+
+@app.get("/monitoring/logs/view", response_class=HTMLResponse, tags=["Monitoring", "UI"])
+async def serve_log_viewer():
+    """
+    Serve the Service Log Viewer UI.
+
+    Returns an interactive log viewer for persisted API requests, traces,
+    and conversation logs with filtering, sorting, and pagination.
+    """
+    if LOG_VIEWER_PATH.exists():
+        return FileResponse(
+            LOG_VIEWER_PATH,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"}
+        )
+    else:
+        raise HTTPException(status_code=404, detail="log_viewer.html not found")
 
 @app.get("/health", tags=["Health"], response_model=HealthResponse)
 async def health():
@@ -539,6 +558,63 @@ async def clear_monitoring_traces():
     """
     try:
         response = await http_client.delete("/monitoring/traces")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/logs", tags=["Monitoring"])
+async def get_service_logs(
+    page: int = 1,
+    limit: int = 50,
+    session_id: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    log_type: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    sort: str = "desc",
+    search: Optional[str] = None,
+):
+    """Query persisted service logs with filters and pagination."""
+    try:
+        params = {"page": page, "limit": limit, "sort": sort}
+        if session_id:
+            params["session_id"] = session_id
+        if agent_key:
+            params["agent_key"] = agent_key
+        if log_type:
+            params["log_type"] = log_type
+        if from_date:
+            params["from_date"] = from_date
+        if to_date:
+            params["to_date"] = to_date
+        if search:
+            params["search"] = search
+        response = await http_client.get("/monitoring/logs", params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/logs/stats", tags=["Monitoring"])
+async def get_service_logs_stats(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    """Get aggregate stats for service logs."""
+    try:
+        params = {}
+        if from_date:
+            params["from_date"] = from_date
+        if to_date:
+            params["to_date"] = to_date
+        response = await http_client.get("/monitoring/logs/stats", params=params)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:

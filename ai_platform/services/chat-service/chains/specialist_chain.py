@@ -124,12 +124,12 @@ class SpecialistChain:
         last_user_messages: List[Dict[str, Any]],
         history: List[Dict],
         context_block: str = "",
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Run specialist chain: KB -> (optional konesh) -> LLM.
 
         Returns:
-            Generated response text
+            Dict with output, system_prompt, kb_context, user_prompt for trace collection
         """
         # Retrieve KB context
         kb_context = await self._retrieve_kb(user_message, history or [])
@@ -174,4 +174,10 @@ class SpecialistChain:
             HumanMessage(content=user_prompt),
         ]
         response = await self.llm.ainvoke(messages)
-        return response.content if hasattr(response, "content") else str(response)
+        output = response.content if hasattr(response, "content") else str(response)
+        return {
+            "output": output,
+            "system_prompt": system_prompt,
+            "kb_context": kb_context,
+            "user_prompt": user_prompt,
+        }

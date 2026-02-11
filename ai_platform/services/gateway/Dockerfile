@@ -42,6 +42,7 @@ COPY Chat.html /app/Chat.html
 COPY Icon.png /app/Icon.png
 COPY favicon.ico /app/favicon.ico
 COPY monitoring_dashboard.html /app/monitoring_dashboard.html
+COPY log_viewer.html /app/log_viewer.html
 
 WORKDIR /app/services/gateway
 ENV PYTHONPATH=/app
