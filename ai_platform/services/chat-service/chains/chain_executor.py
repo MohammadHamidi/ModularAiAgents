@@ -47,6 +47,9 @@ def _post_process_output(
 1) بگو چه بستری در اختیار داری (خانه، مدرسه، مسجد، فضای مجازی)
 2) بگو نقشت چیه (معلم، دانش‌آموز، والد، مبلغ)"""
 
+    # Remove LightRAG citation artifacts (Reference ID: N)
+    result = re.sub(r"\s*\(Reference\s+ID:\s*\d+\)\s*", " ", result, flags=re.IGNORECASE)
+
     # Remove unwanted introductory phrases
     unwanted = [
         r"پرسش کلیدی و مهمی مطرح کردید[^\n]*",

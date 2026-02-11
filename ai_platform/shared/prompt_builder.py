@@ -134,6 +134,14 @@ def build_system_prompt(
             context_lines.append(f"  {i}. {content}")
         parts.append("\n".join(context_lines))
 
+    # Output format: never include citation artifacts from KB/LightRAG
+    parts.append(
+        "⚠️ OUTPUT FORMAT - NEVER include in your response:\n"
+        "- (Reference ID: N) or similar citation markers - these are internal KB artifacts, not for users\n"
+        "- Do not copy or reproduce any (Reference ID: ...) text from the KB context into your answer\n"
+        "- Use the knowledge content naturally but never include such citation artifacts"
+    )
+
     return "\n\n".join(parts)
 
 

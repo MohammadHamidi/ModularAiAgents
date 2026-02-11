@@ -338,7 +338,7 @@
                     </div>
                     <div>
                         <h1 class="text-base sm:text-lg md:text-xl font-bold text-gray-800">هوش مصنوعی سفیران آیه ها</h1>
-                        <p class="text-[11px] sm:text-xs text-gray-500">دستیار هوشمند شما</p>
+                        <p id="headerSubtitle" class="text-[11px] sm:text-xs text-gray-500">دستیار هوشمند شما</p>
                 </div>
             </div>
             </div>
@@ -522,6 +522,18 @@
             baseUrl = 'http://localhost:8000';
         }
         
+        // Extract agent from URL for direct testing (e.g. /ui?agent=action_expert)
+        function getAgentFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('agent') || null;
+        }
+
+        // Extract optional context from URL (e.g. /ui?agent=guest_faq&context=...)
+        function getContextFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('context') || null;
+        }
+
         // Extract encrypted parameter from URL (for Safiranayeha integration)
         function getEncryptedParamFromURL() {
             // Method 1: Query parameter (e.g., /ui?encrypted_param=...)
@@ -556,8 +568,20 @@
         // Initialize with base URL (agent will be set dynamically)
         const aiClient = new AIClient(baseUrl);
 
+        // Apply agent from URL if present (for direct testing without path mapping)
+        const urlAgent = getAgentFromURL();
+        if (urlAgent) {
+            aiClient.setAgentKey(urlAgent);
+            const subtitle = document.getElementById('headerSubtitle');
+            if (subtitle) subtitle.textContent = 'تست ایجنت: ' + urlAgent;
+            console.log('Using agent from URL:', urlAgent);
+        }
+
         // Initialize chat from Safiranayeha encrypted parameter
         async function initializeChatFromSafiranayeha() {
+            // If agent was set via URL, skip Safiranayeha init (direct test mode)
+            if (urlAgent) return false;
+
             const encryptedParam = getEncryptedParamFromURL();
             
             if (!encryptedParam) {
