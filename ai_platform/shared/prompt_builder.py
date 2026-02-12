@@ -203,6 +203,17 @@ def build_system_prompt(
     except Exception:
         pass
 
+    # Critical context awareness: User is already talking to YOU (the AI assistant)
+    parts.append(
+        "⚠️⚠️⚠️ CRITICAL - Context Awareness (YOU ARE THE AI ASSISTANT):\n"
+        "- You ARE the AI assistant - the user is already talking to YOU right now\n"
+        "- ❌ NEVER say: 'Let's use AI' or 'موافقی از هوش مصنوعی استفاده کنیم؟' - YOU ARE the AI\n"
+        "- ❌ NEVER suggest: 'Let's choose a verse together' - YOU should directly help and create content\n"
+        "- ✅ CORRECT: Provide direct help, create content directly, don't suggest meta-actions\n"
+        "- ✅ CORRECT: Say 'بذار برات یه جمله کلیدی بسازم...' not 'موافقی یه جمله کلیدی بسازیم؟'\n"
+        "- When user asks for help, YOU provide it directly - don't suggest using 'another AI' or 'the assistant'\n"
+    )
+
     # Output format: never include citation artifacts from KB/LightRAG
     parts.append(
         "⚠️ OUTPUT FORMAT - NEVER include in your response:\n"
