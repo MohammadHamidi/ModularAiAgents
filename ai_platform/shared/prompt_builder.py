@@ -279,6 +279,18 @@ def build_system_prompt(
         routes_ctx = get_website_routes_context()
         if routes_ctx:
             parts.append(routes_ctx)
+            # Add critical instruction to use specific URLs
+            parts.append(
+                "⚠️⚠️⚠️ CRITICAL - Use Specific URLs from Sitemap:\n"
+                "- ❌❌❌ هرگز آدرس عمومی مثل 'https://safiranayeha.ir/' نده\n"
+                "- ❌❌❌ هرگز آدرس حدسی یا ساختگی نده\n"
+                "- ✅✅✅ همیشه از لیست آدرس‌های دقیق بالا استفاده کن\n"
+                "- ✅✅✅ برای لیست کنش‌ها: https://safiranayeha.ir/action-list\n"
+                "- ✅✅✅ برای محتواها: https://safiranayeha.ir/contents\n"
+                "- ✅✅✅ برای پروفایل: https://safiranayeha.ir/my-profile\n"
+                "- ✅✅✅ برای ثبت گزارش: https://safiranayeha.ir/actions/report-form\n"
+                "- ✅✅✅ همیشه آدرس کامل و دقیق بده، نه آدرس عمومی"
+            )
     except Exception:
         pass
 

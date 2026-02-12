@@ -29,15 +29,17 @@ ROUTER_SYSTEM_PROMPT = """You are a router. Analyze the user message and context
 
 Available agents:
 - guest_faq: معرفی نهضت، سفیر چیه، شروع مسیر، سوالات کلی
-- action_expert: تولید متن/اسکریپت/محتوا برای کنش، چی بگم، محفل، فضاسازی
+- action_expert: تولید متن/اسکریپت/محتوا برای کنش، چی بگم، محفل، فضاسازی، لیست کنش‌ها
 - journey_register: ثبت کنش، گزارش، تکمیل پروفایل
 - rewards_invite: جایزه، امتیاز، سکه، کد معرف
 
 Rules:
 - "ثبت / گزارش کنش" → journey_register
-- "چی بگم / متن بده / اسکریپت" → action_expert
+- "چی بگم / متن بده / اسکریپت / محتوا تولید کن" → action_expert
+- "لیست کنش‌ها / کنش‌ها رو ببینم / چه کنشی انجام بدم" → action_expert
 - سوال جوایز/دعوت → rewards_invite
 - معرفی، سفیر چیه، شروع → guest_faq
+- ⚠️ مهم: اگر کاربر از صفحه /home آمده و سوال خاصی پرسیده، بر اساس سوال route کن نه path
 - If unclear, default to guest_faq
 """
 

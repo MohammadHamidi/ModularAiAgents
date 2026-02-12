@@ -14,8 +14,8 @@ mappings:
     description: "صفحهٔ اصلی"
 
   - path: "/home"
-    agent: "guest_faq"
-    description: "خانه (پس از ورود)"
+    agent: "orchestrator"
+    description: "خانه (پس از ورود) - routing دینامیک بر اساس سوال کاربر"
 
   - path: "/mobaleghan"
     agent: "guest_faq"
