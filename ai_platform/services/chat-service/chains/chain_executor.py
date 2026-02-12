@@ -137,10 +137,16 @@ class ChainExecutor:
         if agent_key == "orchestrator":
             routed_from_orchestrator = True
             # Pass full conversation history to router for better context
-            agent_key = await asyncio.to_thread(
-                self.router.invoke, request.message, history or []
-            )
-            logger.info(f"Router selected agent_key={agent_key}")
+            try:
+                agent_key = await asyncio.to_thread(
+                    self.router.invoke, request.message, history or []
+                )
+                logger.info(f"Router selected agent_key={agent_key}")
+            except Exception as e:
+                logger.error(f"Router chain failed: {e}", exc_info=True)
+                # Default to guest_faq on router failure
+                agent_key = "guest_faq"
+                logger.info(f"Router failed, defaulting to guest_faq")
 
         # Get specialist chain
         specialist = self._get_specialist(agent_key)
@@ -149,9 +155,15 @@ class ChainExecutor:
             agent_key = "guest_faq"
             specialist = self._get_specialist(agent_key)
         if not specialist:
+            logger.error(f"CRITICAL: No specialist found for agent_key={agent_key} even after fallback to guest_faq")
+            # Return a helpful message instead of generic error
             return AgentResponse(
                 session_id=request.session_id or "",
-                output="متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید.",
+                output=(
+                    "ببخشید رفیق، مشکلی در سیستم پیش اومده. "
+                    "لطفاً دوباره تلاش کن یا با پشتیبانی تماس بگیر. "
+                    "من اینجا هستم تا درباره کنش‌های قرآنی و نهضت زندگی با آیه‌ها کمکت کنم."
+                ),
                 metadata={"error": "no_specialist", "agent_key": agent_key},
                 context_updates={},
             )

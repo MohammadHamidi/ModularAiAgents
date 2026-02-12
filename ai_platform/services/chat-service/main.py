@@ -962,9 +962,25 @@ async def chat(agent_key: str, request: AgentRequest):
 
     # Process with executor (history + structured shared context)
     request.session_id = str(sid)
-    response = await executor.process(
-        request, effective_history, shared_context, agent_key=agent_key, summary_block=summary_block
-    )
+    try:
+        response = await executor.process(
+            request, effective_history, shared_context, agent_key=agent_key, summary_block=summary_block
+        )
+    except Exception as e:
+        logging.error(f"Error processing chat request for {agent_key}: {e}", exc_info=True)
+        # Return a polite scope refusal message instead of generic error
+        # This handles cases where out-of-scope questions cause exceptions
+        from shared.base_agent import AgentResponse
+        response = AgentResponse(
+            session_id=str(sid),
+            output=(
+                "ببخشید رفیق، این سوال خارج از حیطه کاری من هست. "
+                "من اینجا هستم تا درباره کنش‌های قرآنی و نهضت زندگی با آیه‌ها کمکت کنم. "
+                "می‌خوای ببینیم چه کنش‌هایی وجود داره یا چطور می‌تونی شروع کنی؟"
+            ),
+            metadata={"error": str(e), "agent_key": agent_key},
+            context_updates={},
+        )
 
     # Debug log: after agent processing, before persistence
     _agent_debug_log(
