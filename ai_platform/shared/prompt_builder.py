@@ -119,6 +119,20 @@ def build_system_prompt(
 
         if len(context_lines) > 1:
             parts.append("\n".join(context_lines))
+        
+        # Always add instruction about user data usage (even if no user info provided)
+        parts.append(
+            "⚠️⚠️⚠️ CRITICAL - User Data Usage (ONLY IF PROVIDED):\n"
+            "- User information (if available) is listed above in '📋 User Information' section\n"
+            "- ❌❌❌ NEVER assume or invent user data that is NOT explicitly listed above\n"
+            "- ❌❌❌ NEVER say 'از اونجایی که تو تهران هستی' if city is NOT in the user information section above\n"
+            "- ❌❌❌ NEVER say 'چون تو از [province/city] هستی' if that information is NOT provided\n"
+            "- ❌❌❌ NEVER mention user's location, province, city, score, or level unless it's explicitly shown above\n"
+            "- ✅ ONLY use user data that is explicitly shown in the '📋 User Information' section above\n"
+            "- ✅ If '📋 User Information' section is empty or doesn't include city/province, NEVER mention location\n"
+            "- ✅ If '📋 User Information' section doesn't include a field, NEVER use that field in your response\n"
+            "- ✅ Check the user information section BEFORE using any user data - if it's not there, don't use it"
+        )
 
     # Add recent messages context if enabled
     recent_config = getattr(agent_config, 'recent_messages_context', {}) or {}
@@ -135,6 +149,7 @@ def build_system_prompt(
         parts.append("\n".join(context_lines))
 
     # Entry path context - where user came from (CRITICAL for understanding user's context)
+    entry_path = None
     if user_info:
         entry_path_data = user_info.get("entry_path")
         if entry_path_data:
@@ -148,6 +163,57 @@ def build_system_prompt(
                 except Exception:
                     # Fallback: simple path display
                     parts.append(f"📍 کاربر چت را از صفحه {entry_path} باز کرده است.")
+    
+    # Determine if user is registered/logged in
+    is_registered = False
+    if user_info:
+        # Check for user_id (from Safiran API) - normalized as "user_id"
+        user_id_data = user_info.get("user_id")
+        if user_id_data:
+            user_id_value = user_id_data.get("value") if isinstance(user_id_data, dict) else user_id_data
+            if user_id_value:
+                is_registered = True
+        
+        # Also check for phone_number (indicates registration) - normalized as "user_phone"
+        phone_data = user_info.get("user_phone")
+        if phone_data:
+            phone_value = phone_data.get("value") if isinstance(phone_data, dict) else phone_data
+            if phone_value:
+                is_registered = True
+        
+        # Check for score or level (indicates registered user)
+        score_data = user_info.get("user_score")
+        if score_data:
+            score_value = score_data.get("value") if isinstance(score_data, dict) else score_data
+            if score_value is not None:
+                is_registered = True
+        
+        # Check entry_path - /home indicates logged in user
+        if entry_path:
+            if entry_path == "/home" or entry_path.startswith("/my-profile"):
+                is_registered = True
+    
+    # Add registration status context
+    if is_registered:
+        parts.append(
+            "✅ کاربر ثبت‌نام شده و وارد سیستم است:\n"
+            "- کاربر دارای user_id، phone_number، score، یا در صفحه /home است\n"
+            "- ❌❌❌ هرگز پیشنهاد ثبت‌نام نده - کاربر قبلاً ثبت‌نام کرده\n"
+            "- ❌❌❌ هرگز نگو 'می‌خوای ثبت‌نام کنی؟' یا 'برو تو پلتفرم ثبت‌نام کن'\n"
+            "- ❌❌❌ هرگز نگو 'اول باید ثبت‌نام کنی' - کاربر قبلاً ثبت‌نام کرده\n"
+            "- ✅ درست: کاربر را به استفاده از پلتفرم و انجام کنش‌ها راهنمایی کن\n"
+            "- ✅ درست: پیشنهاد کن که کنش‌ها را ببیند یا محتوا تولید کند\n"
+            "- ✅ درست: بگو 'می‌خوای بری تو پلتفرم و کنش‌ها رو ببینی؟' (بدون ذکر ثبت‌نام)"
+        )
+    else:
+        # User is NOT registered - can suggest signup
+        parts.append(
+            "⚠️ کاربر هنوز ثبت‌نام نکرده است:\n"
+            "- در user_info هیچ user_id، phone_number، یا score وجود ندارد\n"
+            "- ✅ می‌تونی پیشنهاد ثبت‌نام بدی اگر مرتبط است\n"
+            "- ✅ می‌تونی بگی 'می‌خوای تو پلتفرم ثبت‌نام کنی و شروع کنی؟'\n"
+            "- ⚠️ اما فقط وقتی واقعاً مرتبط است - نه در هر پاسخ"
+        )
 
     # Action details context from Safiran API (if available)
     if user_info:
