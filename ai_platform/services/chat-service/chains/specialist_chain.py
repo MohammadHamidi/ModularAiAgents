@@ -38,12 +38,16 @@ def _create_llm(temperature: float = 0.7) -> ChatOpenAI:
     model = os.getenv("LITELLM_MODEL", "gemini-2.5-flash-lite-preview-09-2025")
     api_key = os.getenv("LITELLM_API_KEY", "")
     base_url = os.getenv("LITELLM_BASE_URL", "https://api.avalai.ir/v1")
-    return ChatOpenAI(
+    # Set max_tokens to prevent truncation (default 8192 for longer responses)
+    max_tokens = int(os.getenv("LITELLM_MAX_TOKENS", "8192"))
+    llm = ChatOpenAI(
         model=model,
         temperature=temperature,
         openai_api_key=api_key,
         openai_api_base=base_url,
+        max_tokens=max_tokens,
     )
+    return llm
 
 
 USER_TEMPLATE = """{kb_context}

@@ -230,6 +230,20 @@ def build_system_prompt(
         "- Use the knowledge content naturally but never include such citation artifacts"
     )
 
+    # CRITICAL: For chain mode, KB context is already provided - don't call tools
+    if executor_mode == "langchain_chain":
+        parts.append(
+            "⚠️⚠️⚠️ CRITICAL - KB Context Already Provided (Chain Mode):\n"
+            "- Knowledge Base context is ALREADY retrieved and provided in the user message below\n"
+            "- ❌ DO NOT output tool call syntax like 'knowledge_base_query(...)' - this is NOT a tool call\n"
+            "- ❌ DO NOT try to call tools - tools are executed BEFORE your response\n"
+            "- ✅ USE the KB context provided in the user message to construct your answer\n"
+            "- ✅ Generate a natural, warm conversational response using the KB information\n"
+            "- ✅ If KB context is provided, use it. If not provided or empty, answer from general knowledge\n"
+            "- The KB context appears in the user message under '[Knowledge Base Context]' or '[Context from Knowledge Base]'\n"
+            "- Your job is to transform that information into a warm, natural Persian response"
+        )
+
     return "\n\n".join(parts)
 
 
