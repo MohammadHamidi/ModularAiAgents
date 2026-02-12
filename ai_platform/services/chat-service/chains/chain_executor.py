@@ -176,18 +176,31 @@ class ChainExecutor:
             if m.get("role") == "user"
         ][-count:]
 
-        # Run specialist chain
-        run_result = await specialist.run(
-            user_message=request.message,
-            user_info=shared_context,
-            last_user_messages=last_user,
-            history=history,
-            context_block=context_block,
-        )
-        output = run_result["output"]
-        system_prompt = run_result.get("system_prompt", "")
-        kb_context = run_result.get("kb_context", "")
-        user_prompt = run_result.get("user_prompt", "")
+        # Run specialist chain with error handling
+        try:
+            run_result = await specialist.run(
+                user_message=request.message,
+                user_info=shared_context,
+                last_user_messages=last_user,
+                history=history,
+                context_block=context_block,
+            )
+            output = run_result["output"]
+            system_prompt = run_result.get("system_prompt", "")
+            kb_context = run_result.get("kb_context", "")
+            user_prompt = run_result.get("user_prompt", "")
+        except Exception as e:
+            logger.error(f"Specialist chain failed for {agent_key}: {e}", exc_info=True)
+            # Return a polite scope refusal message instead of generic error
+            # This handles cases where out-of-scope questions cause exceptions
+            output = (
+                "ببخشید رفیق، این سوال خارج از حیطه کاری من هست. "
+                "من اینجا هستم تا درباره کنش‌های قرآنی و نهضت زندگی با آیه‌ها کمکت کنم. "
+                "می‌خوای ببینیم چه کنش‌هایی وجود داره یا چطور می‌تونی شروع کنی؟"
+            )
+            system_prompt = ""
+            kb_context = ""
+            user_prompt = ""
 
         # Post-process: unwanted text cleanup
         output = _post_process_output(
