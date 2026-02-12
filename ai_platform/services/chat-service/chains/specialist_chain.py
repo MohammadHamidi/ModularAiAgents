@@ -102,9 +102,23 @@ class SpecialistChain:
                 mode="mix",
                 include_references=True,
                 only_need_context=True,
+                top_k=5,  # Reduced from default 10 to 5 for more focused, less noisy context
                 conversation_history=conv if conv else None,
             )
             if result and "[Knowledge Base" in result and "UNAVAILABLE" not in result:
+                # Truncate KB context to prevent exceeding LLM context window
+                # Keep max 4000 chars (~1000 tokens) for KB context to leave room for system prompt and user message
+                max_kb_chars = 4000
+                if len(result) > max_kb_chars:
+                    # Truncate but keep the beginning (most relevant) and add indicator
+                    truncated = result[:max_kb_chars]
+                    # Try to truncate at a sentence boundary if possible
+                    last_period = truncated.rfind('.')
+                    last_newline = truncated.rfind('\n')
+                    cutoff = max(last_period, last_newline)
+                    if cutoff > max_kb_chars * 0.8:  # Only use cutoff if it's not too early
+                        truncated = truncated[:cutoff + 1]
+                    return truncated + "\n\n[KB context truncated for length - most relevant content shown]"
                 return result
             return ""
         except Exception as e:

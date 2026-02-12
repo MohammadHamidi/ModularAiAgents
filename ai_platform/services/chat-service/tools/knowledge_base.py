@@ -50,8 +50,8 @@ class KnowledgeBaseTool(Tool):
             },
             "top_k": {
                 "type": "integer",
-                "description": "Number of top results to retrieve",
-                "default": 10
+                "description": "Number of top results to retrieve (reduced default for focused context)",
+                "default": 5
             },
             "chunk_top_k": {
                 "type": "integer",
@@ -235,9 +235,9 @@ class KnowledgeBaseTool(Tool):
         include_references: bool = True,
         include_chunk_content: bool = True,
         response_type: str = "Multiple Paragraphs",
-        top_k: int = 10,
+        top_k: int = 5,  # Reduced from 10 to 5 for more focused, less noisy retrieval
         chunk_top_k: int = 8,
-        max_total_tokens: int = 6000,
+        max_total_tokens: int = 4000,  # Reduced from 6000 to 4000 tokens for context-only queries
         conversation_history: Optional[List[Dict[str, str]]] = None,
         only_need_context: bool = True,
         only_need_prompt: bool = False
