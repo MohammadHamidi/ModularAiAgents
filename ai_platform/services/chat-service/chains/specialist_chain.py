@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from shared.prompt_builder import build_system_prompt
 
@@ -247,10 +247,27 @@ class SpecialistChain:
             user_message=user_message,
         )
 
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ]
+        # Build messages with conversation history
+        messages = [SystemMessage(content=system_prompt)]
+        
+        # Add conversation history (last few messages for context)
+        if history:
+            # Get last 4-6 messages (2-3 exchanges) for context
+            recent_history = history[-6:] if len(history) >= 6 else history
+            for msg in recent_history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                    
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+        
+        # Add current user message
+        messages.append(HumanMessage(content=user_prompt))
+        
         response = await self.llm.ainvoke(messages)
         output = response.content if hasattr(response, "content") else str(response)
         return {

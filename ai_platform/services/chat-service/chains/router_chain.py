@@ -8,7 +8,9 @@ from typing import Literal
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from pydantic import BaseModel, Field
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ Rules:
 
 ROUTER_USER_TEMPLATE = """User message: {user_message}
 
-History summary (last 2 messages): {history_summary}
+{history_context}
 
 Return agent_key and reason."""
 
@@ -64,29 +66,61 @@ class RouterChain:
 
     def __init__(self):
         self.llm = _create_llm()
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", ROUTER_SYSTEM_PROMPT),
-            ("user", ROUTER_USER_TEMPLATE),
-        ])
-        self.chain = self.prompt | self.llm.with_structured_output(RouterResult)
+        self.chain = self.llm.with_structured_output(RouterResult)
 
     def invoke(
         self,
         user_message: str,
+        history: List[Dict[str, Any]] = None,
         history_summary: str = ""
     ) -> str:
         """
         Route user message to agent_key.
 
+        Args:
+            user_message: Current user message
+            history: Full conversation history (preferred)
+            history_summary: Fallback summary if history not available
+
         Returns:
             agent_key: guest_faq | action_expert | journey_register | rewards_invite
         """
-        result = self.chain.invoke({
-            "user_message": user_message,
-            "history_summary": history_summary or "(no history)",
-        })
-        agent_key = result.agent_key
-        if agent_key not in ("guest_faq", "action_expert", "journey_register", "rewards_invite"):
-            logger.warning(f"Router returned invalid agent_key '{agent_key}', defaulting to guest_faq")
-            agent_key = "guest_faq"
-        return agent_key
+        # Build messages with conversation history
+        messages = [SystemMessage(content=ROUTER_SYSTEM_PROMPT)]
+        
+        # Add conversation history if available
+        if history:
+            # Get last 4-6 messages (2-3 exchanges) for context
+            recent_history = history[-6:] if len(history) >= 6 else history
+            for msg in recent_history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                    
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+        
+        # Add current user message with context note
+        if history:
+            history_note = "\n\n[Note: Conversation history provided above for context]"
+        elif history_summary:
+            history_note = f"\n\n[History summary: {history_summary}]"
+        else:
+            history_note = ""
+        
+        user_content = f"User message: {user_message}{history_note}\n\nReturn agent_key and reason."
+        messages.append(HumanMessage(content=user_content))
+        
+        try:
+            result = self.chain.invoke(messages)
+            agent_key = result.agent_key
+            if agent_key not in ("guest_faq", "action_expert", "journey_register", "rewards_invite"):
+                logger.warning(f"Router returned invalid agent_key '{agent_key}', defaulting to guest_faq")
+                agent_key = "guest_faq"
+            return agent_key
+        except Exception as e:
+            logger.warning(f"Router chain failed: {e}, defaulting to guest_faq")
+            return "guest_faq"

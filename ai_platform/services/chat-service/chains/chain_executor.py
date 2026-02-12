@@ -136,14 +136,9 @@ class ChainExecutor:
         # Resolve agent_key via router if orchestrator
         if agent_key == "orchestrator":
             routed_from_orchestrator = True
-            hist_summary = ""
-            if history:
-                last = history[-2:] if len(history) >= 2 else history
-                hist_summary = " | ".join(
-                    m.get("content", "")[:80] for m in last if m.get("content")
-                )
+            # Pass full conversation history to router for better context
             agent_key = await asyncio.to_thread(
-                self.router.invoke, request.message, hist_summary
+                self.router.invoke, request.message, history or []
             )
             logger.info(f"Router selected agent_key={agent_key}")
 
@@ -164,9 +159,9 @@ class ChainExecutor:
         config = self.agent_configs[agent_key]
         agent_name = getattr(config, "agent_name", agent_key)
 
-        # Entity extraction -> context_updates
+        # Entity extraction -> context_updates (with conversation history for context)
         extractor = EntityExtractionChain(config)
-        context_updates = await extractor.invoke(request.message)
+        context_updates = await extractor.invoke(request.message, history=history)
 
         # Build context block for user message (includes optional summary)
         context_block = build_context_summary(config, shared_context)

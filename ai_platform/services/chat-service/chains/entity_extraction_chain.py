@@ -8,7 +8,9 @@ from typing import Any, Dict, List
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,8 @@ Field names must be exactly from the allowed list. Return empty list if nothing 
 Never invent or assume values."""
 
 EXTRACTION_USER = """Allowed fields: {field_names}
+
+{history_context}
 
 User message: {user_message}
 
@@ -61,15 +65,19 @@ class EntityExtractionChain:
         """
         self.agent_config = agent_config
         self.llm = _create_llm()
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", EXTRACTION_SYSTEM),
-            ("user", EXTRACTION_USER),
-        ])
-        self.chain = self.prompt | self.llm.with_structured_output(ExtractedEntities)
+        self.chain = self.llm.with_structured_output(ExtractedEntities)
 
-    async def invoke(self, user_message: str) -> Dict[str, Any]:
+    async def invoke(
+        self, 
+        user_message: str,
+        history: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
         """
         Extract user data from message.
+
+        Args:
+            user_message: Current user message
+            history: Optional conversation history for context
 
         Returns:
             Dict for context merge: {normalized_name: {"value": ...}}
@@ -79,11 +87,46 @@ class EntityExtractionChain:
             return {}
 
         field_names = [f.field_name for f in enabled]
+        
+        # Build messages with conversation history
+        messages = [SystemMessage(content=EXTRACTION_SYSTEM)]
+        
+        # Add conversation history if available (for better context)
+        if history:
+            recent_history = history[-4:] if len(history) >= 4 else history
+            for msg in recent_history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                    
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+        
+        # Build history context string
+        if history:
+            history_context = "Conversation history (for context):\n"
+            for msg in recent_history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if content:
+                    prefix = "User" if role == "user" else "Assistant"
+                    history_context += f"{prefix}: {content[:200]}\n"
+        else:
+            history_context = "(no conversation history)"
+        
+        # Add current user message
+        user_content = EXTRACTION_USER.format(
+            field_names=", ".join(field_names),
+            history_context=history_context,
+            user_message=user_message
+        )
+        messages.append(HumanMessage(content=user_content))
+        
         try:
-            result = await self.chain.ainvoke({
-                "field_names": ", ".join(field_names),
-                "user_message": user_message,
-            })
+            result = await self.chain.ainvoke(messages)
         except Exception as e:
             logger.warning(f"Entity extraction failed: {e}")
             return {}

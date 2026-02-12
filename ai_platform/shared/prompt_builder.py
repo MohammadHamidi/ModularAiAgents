@@ -165,6 +165,19 @@ def build_system_prompt(
                         desc_short = desc[:240] + ("..." if len(desc) > 240 else "")
                         block += f"\n- توضیح: {desc_short}"
                     parts.append(block)
+                    
+                    # CRITICAL: Add explicit instruction to use THIS action when user refers to it
+                    parts.append(
+                        "⚠️⚠️⚠️ CRITICAL - Action Context (MANDATORY):\n"
+                        f"- کاربر در حال دیدن کنش «{title}» است\n"
+                        "- وقتی کاربر می‌گوید «برای این کنش»، «این کنش»، «همین کنش»، یا «برای کنش...»\n"
+                        "- ✅ الزامی است که محتوا را برای همین کنش تولید کنی\n"
+                        "- ❌ هرگز موضوع، فراز، یا کنش را عوض نکن - مگر کاربر صریحاً درخواست کند\n"
+                        "- ❌ هرگز فراز یا موضوع جدید انتخاب نکن - از فراز مرتبط با همین کنش استفاده کن\n"
+                        "- ✅ اگر کاربر کنش خاصی را انتخاب کرده، همیشه همان کنش را استفاده کن\n"
+                        "- ✅ اگر در مکالمه قبلی کنشی انتخاب شده، همان را ادامه بده\n"
+                        "- ❌ ممنوع: تغییر خودسرانه موضوع، فراز، یا کنش بدون درخواست صریح کاربر"
+                    )
 
     # User actions summary context from Profile/GetMyActions
     if user_info:
@@ -241,7 +254,15 @@ def build_system_prompt(
             "- ✅ Generate a natural, warm conversational response using the KB information\n"
             "- ✅ If KB context is provided, use it. If not provided or empty, answer from general knowledge\n"
             "- The KB context appears in the user message under '[Knowledge Base Context]' or '[Context from Knowledge Base]'\n"
-            "- Your job is to transform that information into a warm, natural Persian response"
+            "- Your job is to transform that information into a warm, natural Persian response\n"
+            "\n"
+            "⚠️⚠️⚠️ CRITICAL - Use Conversation History:\n"
+            "- Conversation history is provided BEFORE the current message\n"
+            "- ✅ ALWAYS read and use the conversation history to understand context\n"
+            "- ✅ If user mentioned a specific action/topic in previous messages, continue with THAT action/topic\n"
+            "- ✅ If user said 'برای این کنش' (for THIS action), refer to the action mentioned in conversation history\n"
+            "- ✅ Maintain continuity - don't change topics/actions unless user explicitly requests it\n"
+            "- ❌ DO NOT ignore conversation history - it contains critical context about what the user wants"
         )
 
     return "\n\n".join(parts)
