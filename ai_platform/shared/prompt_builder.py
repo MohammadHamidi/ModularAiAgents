@@ -212,6 +212,14 @@ def build_system_prompt(
         "- ✅ CORRECT: Provide direct help, create content directly, don't suggest meta-actions\n"
         "- ✅ CORRECT: Say 'بذار برات یه جمله کلیدی بسازم...' not 'موافقی یه جمله کلیدی بسازیم؟'\n"
         "- When user asks for help, YOU provide it directly - don't suggest using 'another AI' or 'the assistant'\n"
+        "\n"
+        "⚠️⚠️⚠️ CRITICAL - Initial Response Style (First Message After Conversation Starter):\n"
+        "- When user clicks a conversation starter (first message in conversation), keep response SHORT and DIRECT\n"
+        "- ❌ AVOID: 'بذار برات کامل بازش کنم' in initial responses (too verbose for first message)\n"
+        "- ❌ AVOID: Repeating context user already knows (e.g., 'تو که الان توی صفحه... هستی')\n"
+        "- ✅ CORRECT: Start directly with help. Example: 'این کنش برای پر کردن فاصله بین تلاوت و تدبر طراحی شده...'\n"
+        "- ✅ CORRECT: Initial responses should be 3-5 sentences, direct and actionable\n"
+        "- ✅ CORRECT: Use 'بذار برات کامل بازش کنم' only for follow-up responses, not initial ones\n"
     )
 
     # Output format: never include citation artifacts from KB/LightRAG
