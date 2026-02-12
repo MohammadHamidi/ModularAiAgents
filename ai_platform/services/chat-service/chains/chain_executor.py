@@ -37,22 +37,8 @@ def _post_process_output(
     """
     result = output
 
-    # Konesh scope validation for action_expert and content_generation_expert
-    if agent_key in ("action_expert", "content_generation_expert"):
-        konesh_keywords = ["کنش", "محفل", "صبحگاه", "فضاسازی", "مسجد", "مدرسه", "خانه", "محتوا", "اسکریپت", "متن"]
-        if not any(kw in user_message.lower() for kw in konesh_keywords):
-            if agent_key == "content_generation_expert":
-                return """من متخصص پیشرفته تولید محتوا برای کنش‌های قرآنی سفیران آیه‌ها هستم و فقط می‌تونم در مورد تولید محتوا، اسکریپت و راهنمای عملیاتی کنش‌ها کمکت کنم.
-اگه می‌خوای برای این موقعیت محتوای کامل و حرفه‌ای تولید کنی، خوشحال می‌شم راهنماییت کنم!
-پیشنهادهای بعدی:
-1) بگو چه بستری در اختیار داری (خانه، مدرسه، مسجد، فضای مجازی)
-2) بگو نقشت چیه (معلم، دانش‌آموز، والد، مبلغ، سخنران)"""
-            else:
-                return """من متخصص کنش‌های قرآنی سفیران آیه‌ها هستم و فقط می‌تونم در مورد انتخاب، طراحی و اجرای کنش‌ها کمکت کنم.
-اگه می‌خوای برای این موقعیت یه کنش یا محفل قرآنی برگزار کنی، خوشحال می‌شم راهنماییت کنم!
-پیشنهادهای بعدی:
-1) بگو چه بستری در اختیار داری (خانه، مدرسه، مسجد، فضای مجازی)
-2) بگو نقشت چیه (معلم، دانش‌آموز، والد، مبلغ)"""
+    # Note: Scope validation removed - AI agents handle scope through their system prompts and context
+    # This allows natural conversation flow without blocking valid follow-up messages
 
     # Remove LightRAG citation artifacts (Reference ID: N)
     result = re.sub(r"\s*\(Reference\s+ID:\s*\d+\)\s*", " ", result, flags=re.IGNORECASE)
@@ -208,7 +194,7 @@ class ChainExecutor:
         kb_context = run_result.get("kb_context", "")
         user_prompt = run_result.get("user_prompt", "")
 
-        # Post-process: Konesh scope, unwanted text
+        # Post-process: unwanted text cleanup
         output = _post_process_output(
             output, agent_key, agent_name, request.message
         )
