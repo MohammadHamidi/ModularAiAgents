@@ -1,102 +1,155 @@
 # Path to Agent Mapping Configuration
 # Maps website paths to appropriate AI agents
+# Based on safiranayeha.ir sitemap (2026-02-12)
 
-# This configuration determines which AI agent should handle the conversation
-# based on where the user is coming from on the Safiranayeha website.
-
-version: "1.0"
+version: "1.1"
 description: "Maps Safiranayeha website paths to AI agents"
 
-# Default agent to use if path doesn't match any pattern
 default_agent: "guest_faq"
 
-# Path mappings
-# Each entry maps a path pattern to an agent key
-# Patterns support:
-#   - Exact match: "/konesh/list"
-#   - Wildcard: "/konesh/*"
-#   - Prefix match: "/profile*"
-
 mappings:
-  # Guest and FAQ paths
+  # Guest and entry paths
   - path: "/"
     agent: "guest_faq"
-    description: "Homepage - newcomer guide"
+    description: "صفحهٔ اصلی"
+
+  - path: "/home"
+    agent: "guest_faq"
+    description: "خانه (پس از ورود)"
+
+  - path: "/mobaleghan"
+    agent: "guest_faq"
+    description: "صفحهٔ مبلغین"
 
   - path: "/about"
     agent: "guest_faq"
-    description: "About page - general information"
+    description: "About page"
 
   - path: "/faq"
     agent: "guest_faq"
-    description: "FAQ page - common questions"
+    description: "FAQ page"
 
   - path: "/help"
     agent: "guest_faq"
     description: "Help center"
 
-  # Action/Konesh related paths
-  - path: "/konesh/*"
+  # AI chat
+  - path: "/ai"
+    agent: "guest_faq"
+    description: "دستیار هوش مصنوعی"
+
+  # Action/Konesh paths (exact first for specificity)
+  - path: "/actions/report-form"
     agent: "action_expert"
-    description: "Action/Konesh pages - content creation"
+    description: "ثبت گزارش اقدام"
 
   - path: "/actions/*"
     agent: "action_expert"
-    description: "Actions pages - content creation"
+    description: "Actions pages"
+
+  - path: "/action-list"
+    agent: "action_expert"
+    description: "فهرست اقدامات"
+
+  - path: "/done-task"
+    agent: "action_expert"
+    description: "کارهای انجام‌شده"
+
+  - path: "/actions"
+    agent: "action_expert"
+    description: "لیست اقدامات"
+
+  - path: "/contents"
+    agent: "action_expert"
+    description: "لیست محتواها"
+
+  - path: "/konesh/*"
+    agent: "action_expert"
+    description: "Konesh pages (legacy)"
 
   - path: "/محفل/*"
     agent: "action_expert"
-    description: "Mahfel pages - content creation"
+    description: "Mahfel pages"
 
   - path: "/content/create"
-    agent: "action_expert"
-    description: "Content creation page"
+    agent: "content_generation_expert"
+    description: "Content creation - تولید محتوا"
 
-  # Journey and registration paths
+  # Profile - journey/registration (my-profile = profile)
+  - path: "/my-profile/saved-contents"
+    agent: "action_expert"
+    description: "محتواهای ذخیره‌شده"
+
+  - path: "/my-profile/saved-actions"
+    agent: "action_expert"
+    description: "اقدامات ذخیره‌شده"
+
+  - path: "/my-profile/achievements"
+    agent: "rewards_invite"
+    description: "دستاوردهای من"
+
+  - path: "/my-profile/invite-friends"
+    agent: "rewards_invite"
+    description: "دعوت از دوستان"
+
+  - path: "/my-profile/actions"
+    agent: "journey_register"
+    description: "لیست اقدامات"
+
+  - path: "/my-profile/faq"
+    agent: "guest_faq"
+    description: "سوالات متداول"
+
+  - path: "/my-profile/info"
+    agent: "journey_register"
+    description: "اطلاعات حساب"
+
+  - path: "/my-profile"
+    agent: "journey_register"
+    description: "پروفایل من"
+
+  - path: "/my-profile/*"
+    agent: "journey_register"
+    description: "Profile sub-pages"
+
+  # Auth and registration
   - path: "/register"
     agent: "journey_register"
-    description: "Registration page"
+    description: "ثبت‌نام"
+
+  - path: "/login"
+    agent: "guest_faq"
+    description: "ورود"
 
   - path: "/profile/*"
     agent: "journey_register"
-    description: "Profile pages - completion guide"
+    description: "Profile (legacy path)"
 
   - path: "/onboarding/*"
     agent: "journey_register"
-    description: "Onboarding flow"
+    description: "Onboarding"
 
   - path: "/journey/*"
     agent: "journey_register"
-    description: "User journey pages"
+    description: "User journey"
 
-  # Rewards and invitation paths
+  # Rewards (legacy paths)
   - path: "/rewards/*"
     agent: "rewards_invite"
-    description: "Rewards pages"
+    description: "Rewards"
 
   - path: "/points/*"
     agent: "rewards_invite"
-    description: "Points system pages"
+    description: "Points"
 
   - path: "/invite/*"
     agent: "rewards_invite"
-    description: "Invitation pages"
+    description: "Invitation"
 
   - path: "/leaderboard/*"
     agent: "rewards_invite"
-    description: "Leaderboard pages"
+    description: "Leaderboard"
 
   - path: "/achievements/*"
     agent: "rewards_invite"
-    description: "Achievements pages"
-
-# Pattern matching rules:
-# 1. Exact matches are tried first
-# 2. Then wildcard matches (longest prefix first)
-# 3. Finally, default agent is used
-
-# Examples:
-#   /konesh/list              → action_expert
-#   /profile/complete         → journey_register
-#   /rewards/history          → rewards_invite
-#   /unknown-page             → guest_faq (default)
+    description: "Achievements"

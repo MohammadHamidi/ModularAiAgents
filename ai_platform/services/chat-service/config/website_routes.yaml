@@ -1,0 +1,131 @@
+# Website Routes Reference - Safiranayeha (safiranayeha.ir)
+# Use these URLs when redirecting users. Injected as context for all agents.
+# Base URL: https://safiranayeha.ir
+# Updated: 2026-02-12 (based on official sitemap)
+
+base_url: "https://safiranayeha.ir"
+
+routes:
+  # Entry and home
+  - path: "/"
+    url: "https://safiranayeha.ir/"
+    title_fa: "صفحهٔ اصلی"
+    description: "صفحهٔ اصلی سایت سفیران آیه‌ها (به صفحه /home هدایت می‌شود). نمایش پیشنهادهای شخصی‌سازی‌شده برای فعالیت‌های قرآنی."
+    when_to_use: "دیدن معرفی کلی، شروع آشنایی با سفیران آیه‌ها، پیشنهادهای شخصی‌سازی‌شده"
+
+  - path: "/home"
+    url: "https://safiranayeha.ir/home"
+    title_fa: "خانه (پس از ورود)"
+    description: "خانه (پس از ورود) - صفحه اصلی سایت با نمایش محتوای ترند، اقدامات پیشنهادی، و وظایف در انتظار انجام."
+    when_to_use: "پیش‌خوان اصلی پس از ورود، مشاهده محتواهای ترند، اقدامات پیشنهادی، وظایف در انتظار"
+
+  # Marketing and info
+  - path: "/mobaleghan"
+    url: "https://safiranayeha.ir/mobaleghan"
+    title_fa: "صفحهٔ مبلغین"
+    description: "صفحهٔ مبلغین - مرکز منابع ویژه مبلغین شامل دوره‌های آموزشی و ابزارهای هوش مصنوعی برای تولید محتوای منبر."
+    when_to_use: "مبلغین می‌خواهند دوره‌های آموزشی ببینند، تولید محتوای منبر با هوش مصنوعی"
+
+  # Auth
+  - path: "/login"
+    url: "https://safiranayeha.ir/login"
+    title_fa: "ورود"
+    description: "ورود - صفحه ورود کاربران با فرم وارد کردن شماره موبایل برای احراز هویت."
+    when_to_use: "کاربر می‌خواهد وارد شود، ثبت‌نام کرده و می‌خواهد لاگین کند"
+
+  - path: "/register"
+    url: "https://safiranayeha.ir/register"
+    title_fa: "ثبت‌نام"
+    description: "ثبت‌نام - مرحله ثبت‌نام کاربران برای انتخاب استان و شهر محل سکونت."
+    when_to_use: "کاربر جدید می‌خواهد سفیر شود، ایجاد حساب، انتخاب استان و شهر"
+
+  # AI Chat
+  - path: "/ai"
+    url: "https://safiranayeha.ir/ai"
+    title_fa: "دستیار هوش مصنوعی"
+    description: "دستیار هوش مصنوعی - ابزار هوش مصنوعی برای ساخت فیش هوشمند منبر و طراحی ساختار سخنرانی مذهبی."
+    when_to_use: "ساخت فیش منبر، طراحی ساختار سخنرانی، تولید محتوای مذهبی با هوش مصنوعی"
+
+  # Content
+  - path: "/contents"
+    url: "https://safiranayeha.ir/contents"
+    title_fa: "لیست محتواها"
+    description: "لیست محتواها - کتابخانه دیجیتال شامل ویدیو، صوت، و متون مرتبط با پویش‌های قرآنی."
+    when_to_use: "دیدن محتواهای آماده، ویدیو، صوت، متون مرتبط با پویش‌های قرآنی"
+
+  # Actions (کنش)
+  - path: "/actions"
+    url: "https://safiranayeha.ir/actions"
+    title_fa: "لیست اقدامات"
+    description: "لیست اقدامات - فهرست اقدامات قرآنی قابل انجام."
+    when_to_use: "مشاهده لیست اقدامات، جستجو و فیلتر کنش‌های قرآنی"
+
+  - path: "/action-list"
+    url: "https://safiranayeha.ir/action-list"
+    title_fa: "فهرست اقدامات"
+    description: "فهرست اقدامات - فهرست قابل جستجو و فیلتر از اقدامات قرآنی قابل انجام."
+    when_to_use: "مشاهده لیست کامل کنش‌ها، جستجو و فیلتر کنش‌های قرآنی"
+
+  - path: "/done-task"
+    url: "https://safiranayeha.ir/done-task"
+    title_fa: "کارهای انجام‌شده"
+    description: "کارهای انجام‌شده - خلاصه عملکرد کاربر شامل امتیازات کسب‌شده، گزارش فعالیت‌ها و میزان پیشرفت."
+    when_to_use: "دیدن خلاصه عملکرد، امتیازات کسب‌شده، گزارش فعالیت‌ها، میزان پیشرفت"
+
+  - path: "/actions/report-form"
+    url: "https://safiranayeha.ir/actions/report-form"
+    title_fa: "ثبت گزارش اقدام"
+    description: "ثبت گزارش اقدام - فرم ثبت گزارش انجام اقدامات برای دریافت امتیاز."
+    when_to_use: "کاربر کنشی انجام داده و می‌خواهد گزارش ثبت کند و امتیاز دریافت کند"
+
+  # Profile
+  - path: "/my-profile"
+    url: "https://safiranayeha.ir/my-profile"
+    title_fa: "پروفایل من"
+    description: "پروفایل من - داشبورد پروفایل کاربر شامل سطح، امتیاز، و دسترسی سریع به بخش‌های مهم."
+    when_to_use: "دیدن داشبورد پروفایل، سطح، امتیاز، دسترسی سریع به بخش‌های مهم"
+
+  - path: "/my-profile/info"
+    url: "https://safiranayeha.ir/my-profile/info"
+    title_fa: "اطلاعات حساب"
+    description: "اطلاعات حساب - فرم ویرایش اطلاعات شخصی کاربر و موقعیت جغرافیایی."
+    when_to_use: "ویرایش اطلاعات شخصی، موقعیت جغرافیایی، تکمیل یا تغییر نام، استان، شهر"
+
+  - path: "/my-profile/faq"
+    url: "https://safiranayeha.ir/my-profile/faq"
+    title_fa: "سوالات متداول"
+    description: "سوالات متداول - بخش راهنما با دسته‌بندی آکاردئونی برای موضوعاتی مانند اقدامات، محتوا و امتیازات."
+    when_to_use: "پاسخ به سوالات رایج، راهنمای اقدامات، محتوا، امتیازات"
+
+  - path: "/my-profile/actions"
+    url: "https://safiranayeha.ir/my-profile/actions"
+    title_fa: "لیست اقدامات"
+    description: "لیست اقدامات - لیست اقدامات کاربر، دسته‌بندی‌شده به «در انتظار گزارش» و «انجام‌شده»."
+    when_to_use: "دیدن لیست کنش‌های کاربر، کنش‌های در انتظار گزارش، کنش‌های انجام‌شده"
+
+  - path: "/my-profile/achievements"
+    url: "https://safiranayeha.ir/my-profile/achievements"
+    title_fa: "دستاوردهای من"
+    description: "دستاوردهای من - نمایش گرافیکی پیشرفت کاربر و شرایط لازم برای رسیدن به سطوح بعدی."
+    when_to_use: "دیدن پیشرفت گرافیکی، شرایط رسیدن به سطوح بعدی، دستاوردها"
+
+  - path: "/my-profile/invite-friends"
+    url: "https://safiranayeha.ir/my-profile/invite-friends"
+    title_fa: "دعوت از دوستان"
+    description: "دعوت از دوستان - صفحه دعوت از دوستان با لینک و کد معرفی برای اشتراک‌گذاری."
+    when_to_use: "دعوت دوستان، دریافت لینک و کد معرف، اشتراک‌گذاری"
+
+  - path: "/my-profile/saved-actions"
+    url: "https://safiranayeha.ir/my-profile/saved-actions"
+    title_fa: "اقدامات ذخیره‌شده"
+    description: "اقدامات ذخیره‌شده - فهرست اقدامات ذخیره‌شده برای انجام در آینده."
+    when_to_use: "دیدن لیست کنش‌های ذخیره‌شده، کنش‌های مورد علاقه برای انجام در آینده"
+
+  - path: "/my-profile/saved-contents"
+    url: "https://safiranayeha.ir/my-profile/saved-contents"
+    title_fa: "محتواهای ذخیره‌شده"
+    description: "محتواهای ذخیره‌شده - مجموعه محتوای ذخیره‌شده از کتابخانه رسانه‌ای."
+    when_to_use: "دیدن محتواهای ذخیره‌شده، مجموعه محتوا از کتابخانه"
+
+# Quick reference for agents - when redirecting users, use these exact URLs
+# Example: "برای ثبت‌نام به https://safiranayeha.ir/register بروید"

@@ -112,11 +112,13 @@ class ChatInitRequest(BaseModel):
     encrypted_param: Optional[str] = None  # Optional encrypted parameter from URL
     user_id: Optional[str] = None  # Direct user_id (alternative to encrypted_param)
     path: Optional[str] = None  # Website path (alternative to encrypted_param)
+    from_path: Optional[str] = None  # Page user came from (e.g., from /ai?from=/actions/40)
     
     class Config:
         schema_extra = {
             "example": {
-                "encrypted_param": "encrypted_base64_string_from_url"
+                "encrypted_param": "encrypted_base64_string_from_url",
+                "from_path": "/actions/40"
             }
         }
 
@@ -126,6 +128,8 @@ class ChatInitResponse(BaseModel):
     agent_key: str
     user_data: Optional[Dict[str, Any]] = None
     welcome_message: Optional[str] = None
+    conversation_starters: Optional[List[str]] = None
+    subtitle: Optional[str] = None
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint"""

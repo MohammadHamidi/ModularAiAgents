@@ -31,6 +31,8 @@ from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool, GetCompanyInfoTool
 from tools.konesh_query import KoneshQueryTool
+from tools.safiran_content import SafiranContentTool
+from tools.safiran_action import SafiranActionTool
 
 # Import monitoring
 from monitoring import trace_collector
@@ -181,9 +183,10 @@ class FieldResponse(BaseModel):
 
 class ChatInitRequest(BaseModel):
     """Request model for initializing chat from Safiranayeha website."""
-    encrypted_param: str = None  # Optional encrypted parameter from URL
+    encrypted_param: Optional[str] = None  # Optional encrypted parameter from URL
     user_id: Optional[str] = None  # Direct user_id (alternative to encrypted_param)
     path: Optional[str] = None  # Website path (alternative to encrypted_param)
+    from_path: Optional[str] = None  # Page user came from (e.g., from /ai?from=/actions/40)
 
 
 class ChatInitResponse(BaseModel):
@@ -192,6 +195,8 @@ class ChatInitResponse(BaseModel):
     agent_key: str
     user_data: Optional[Dict[str, Any]] = None
     welcome_message: Optional[str] = None
+    conversation_starters: Optional[List[str]] = None
+    subtitle: Optional[str] = None
 
 
 # #region agent log helper
@@ -238,7 +243,8 @@ log_service = None  # For persisting logs to DB
 PERSONA_TOOL_NAMES = {
     "orchestrator": ["route_to_agent"],
     "guest_faq": ["knowledge_base_query"],
-    "action_expert": ["query_konesh", "knowledge_base_query"],
+    "action_expert": ["query_konesh", "knowledge_base_query", "query_safiran_actions"],
+    "content_generation_expert": ["query_konesh", "knowledge_base_query", "query_safiran_content"],
     "journey_register": ["query_konesh", "knowledge_base_query"],
     "rewards_invite": ["knowledge_base_query"],
 }
@@ -335,6 +341,8 @@ async def startup():
     ToolRegistry.register_tool(WebSearchTool())
     ToolRegistry.register_tool(GetCompanyInfoTool())
     ToolRegistry.register_tool(KoneshQueryTool())
+    ToolRegistry.register_tool(SafiranContentTool())
+    ToolRegistry.register_tool(SafiranActionTool())
     
     logging.info(f"Registered {len(ToolRegistry.list_tools())} tools: {ToolRegistry.list_tools()}")
     
@@ -348,6 +356,7 @@ async def startup():
         "orchestrator": "personalities/orchestrator.yaml",
         "guest_faq": "personalities/guest_faq.yaml",
         "action_expert": "personalities/action_expert.yaml",
+        "content_generation_expert": "personalities/content_generation_expert.yaml",
         "journey_register": "personalities/journey_register.yaml",
         "rewards_invite": "personalities/rewards_invite.yaml",
     }
@@ -369,6 +378,13 @@ async def startup():
 
     # Initialize Safiranayeha API client (login will happen on-demand when needed)
     safiranayeha_client = SafiranayehaClient(http_client=http_client)
+    
+    # Set manual token if provided in environment
+    manual_token = os.getenv("SAFIRAN_MANUAL_TOKEN")
+    if manual_token:
+        safiranayeha_client.set_manual_token(manual_token)
+        logging.info("Using manual Safiran token from environment")
+    
     set_safiranayeha_client(safiranayeha_client)
     logging.info("Safiranayeha API client initialized (authentication will occur on first use)")
 
@@ -390,11 +406,15 @@ async def startup():
     from chains.chain_executor import ChainExecutor
     kb_tool = ToolRegistry.get_tool("knowledge_base_query")
     konesh_tool = ToolRegistry.get_tool("query_konesh")
+    safiran_content_tool = ToolRegistry.get_tool("query_safiran_content")
+    safiran_action_tool = ToolRegistry.get_tool("query_safiran_actions")
     if kb_tool and AGENT_CONFIGS:
         chain_executor = ChainExecutor(
             agent_configs=AGENT_CONFIGS,
             kb_tool=kb_tool,
             konesh_tool=konesh_tool,
+            safiran_content_tool=safiran_content_tool,
+            safiran_action_tool=safiran_action_tool,
             log_service=log_service,
         )
         logging.info("✅ Chain executor initialized")
@@ -663,6 +683,13 @@ async def initialize_chat(request: ChatInitRequest):
             path = request.path or '/'
             if not user_id:
                 raise HTTPException(400, "Either encrypted_param or user_id must be provided")
+        
+        # Step 1.5: Use 'from_path' if provided (indicates which page user came from)
+        # This is more specific than the iframe path - it's the actual page user was viewing
+        # Example: User on /actions/40 clicks to go to /ai?from=/actions/40
+        entry_path = request.from_path if request.from_path else path
+        if request.from_path:
+            logging.info(f"User came from page: {request.from_path} (iframe path was: {path})")
 
         # Step 2: Fetch user data from Safiranayeha API
         logging.info(f"Fetching user data for user_id={user_id}...")
@@ -674,6 +701,33 @@ async def initialize_chat(request: ChatInitRequest):
             # Continue with empty user data
             user_data_raw = {}
             logging.warning("Continuing with empty user data")
+
+        # Step 2.5: Fetch action details from Safiran API when entry path includes /actions/{id}
+        action_details = {}
+        action_id = None
+        try:
+            m = re.search(r"/actions/(\d+)", entry_path or "")
+            if m:
+                action_id = int(m.group(1))
+                action_details = await safiranayeha_client.get_action_details(action_id)
+                if action_details:
+                    logging.info(f"Fetched action details for action_id={action_id}")
+        except Exception as e:
+            logging.warning(f"Failed to fetch action details for entry path '{entry_path}': {e}")
+
+        # Step 2.6: Fetch user's actions list for better personalization
+        user_my_actions = {}
+        try:
+            has_user_id = bool(
+                (isinstance(user_data_raw, dict) and (user_data_raw.get("userId") or user_data_raw.get("user_id")))
+                or user_id
+            )
+            if has_user_id:
+                user_my_actions = await safiranayeha_client.get_my_actions(page=1, page_size=20)
+                if user_my_actions:
+                    logging.info("Fetched user's actions list from Profile/GetMyActions")
+        except Exception as e:
+            logging.warning(f"Failed to fetch user actions list: {e}")
 
         # Step 3: Determine agent based on path
         agent_key = path_router.get_agent_for_path(path)
@@ -689,43 +743,76 @@ async def initialize_chat(request: ChatInitRequest):
         logging.info(f"Created new session: {session_id}")
 
         # Step 5: Normalize and save user data to context
+        normalized_user_data = {}
         if user_data_raw:
             normalized_user_data = safiranayeha_client.normalize_user_data_for_context(user_data_raw)
             logging.info(f"Normalized {len(normalized_user_data)} user data fields")
 
-            # Save to context manager
-            try:
-                await context_manager.merge_context(
+        # Save additional Safiran contexts for downstream prompts/chains
+        if action_details:
+            normalized_user_data["action_details"] = {"value": action_details}
+        if user_my_actions:
+            normalized_user_data["user_my_actions"] = {"value": user_my_actions}
+
+        # Step 5.5: Save entry_path (where user came from) to context
+        # This helps agents understand the user's context (e.g., "user is on action list page")
+        # Use 'from_path' if provided (more specific), otherwise use path from encrypted_param
+        normalized_user_data["entry_path"] = {"value": entry_path}
+        logging.info(f"Saved entry_path '{entry_path}' to context for session {session_id}")
+
+        # Save to context manager (with timeout to avoid blocking if DB is slow)
+        try:
+            await asyncio.wait_for(
+                context_manager.merge_context(
                     session_id,
                     normalized_user_data,
                     agent_type=agent_key
-                )
-                logging.info(f"Saved user context for session {session_id}")
-            except Exception as e:
-                logging.error(f"Failed to save user context: {e}")
-                # Continue anyway
+                ),
+                timeout=3.0,
+            )
+            logging.info(f"Saved user context for session {session_id}")
+        except asyncio.TimeoutError:
+            logging.warning("merge_context timed out after 3s; continuing without saving")
+        except Exception as e:
+            logging.error(f"Failed to save user context: {e}")
+            # Continue anyway
 
-        # Step 6: Generate welcome message (optional)
-        welcome_message = None
-        # You can customize this based on agent_key
-        if agent_key == "guest_faq":
-            welcome_message = "سلام! خوش اومدی به سفیران آیه‌ها 🌟 چطور می‌تونم کمکت کنم؟"
-        elif agent_key == "action_expert":
-            welcome_message = "سلام! برای تولید محتوای کنش‌ها آماده‌ام. چه کنشی مد نظرته؟"
-        elif agent_key == "journey_register":
-            welcome_message = "سلام! بیا مسیر سفیران رو با هم طی کنیم. از کجا شروع کنیم؟"
-        elif agent_key == "rewards_invite":
-            welcome_message = "سلام! برای اطلاعات امتیازات و دعوت‌ها اینجام. چه چیزی می‌خوای بدونی؟"
-        else:
+        # Step 6: Generate context-aware welcome message and conversation starters
+        logging.info(f"Step 6: Generating welcome message for agent {agent_key}, entry_path {entry_path}")
+        try:
+            # Import from utils directory (relative to this file)
+            from utils.welcome_message_builder import get_welcome_message_and_starters
+            logging.info("Imported welcome_message_builder successfully")
+            welcome_data = get_welcome_message_and_starters(
+                agent_key=agent_key,
+                entry_path=entry_path,
+                user_data=user_data_raw if user_data_raw else None,
+                action_details=action_details if action_details else None,
+            )
+            logging.info("Called get_welcome_message_and_starters successfully")
+            welcome_message = welcome_data.get("welcome_message", "سلام! چطور می‌تونم کمکت کنم؟")
+            conversation_starters = welcome_data.get("conversation_starters", [])
+            subtitle = welcome_data.get("subtitle")
+            logging.info(f"Generated welcome message with {len(conversation_starters)} starters for agent {agent_key}, path {entry_path}")
+        except Exception as e:
+            logging.warning(f"Failed to generate context-aware welcome message: {e}", exc_info=True)
+            # Fallback to simple welcome
             welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
+            conversation_starters = []
+            subtitle = None
 
         # Step 7: Return response
-        return ChatInitResponse(
+        logging.info(f"Step 7: Returning response with session_id {session_id}, agent {agent_key}")
+        response = ChatInitResponse(
             session_id=str(session_id),
             agent_key=agent_key,
             user_data=user_data_raw if user_data_raw else None,
-            welcome_message=welcome_message
+            welcome_message=welcome_message,
+            conversation_starters=conversation_starters if conversation_starters else None,
+            subtitle=subtitle
         )
+        logging.info("Response created successfully, returning")
+        return response
 
     except HTTPException:
         raise

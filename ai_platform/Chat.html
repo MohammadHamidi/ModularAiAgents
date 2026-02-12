@@ -605,6 +605,10 @@
                 messageInput.disabled = true;
                 sendButton.disabled = true;
                 
+                // Extract 'from' parameter (indicates which page user came from)
+                const urlParams = new URLSearchParams(window.location.search);
+                const fromParam = urlParams.get('from');
+                
                 // Call init endpoint
                 const response = await fetch(`${baseUrl}/chat/init`, {
                     method: 'POST',
@@ -612,7 +616,8 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        encrypted_param: encryptedParam
+                        encrypted_param: encryptedParam,
+                        from_path: fromParam ? decodeURIComponent(fromParam) : null
                     })
                 });
                 
@@ -628,18 +633,67 @@
                 aiClient.setUserData(data.user_data);
                 aiClient.setAgentKey(data.agent_key);
                 
-                // Clear loading and display welcome message
+                // Update subtitle if provided
+                if (data.subtitle) {
+                    const subtitle = document.getElementById('headerSubtitle');
+                    if (subtitle) {
+                        subtitle.textContent = data.subtitle;
+                    }
+                }
+                
+                // Clear loading and display welcome message with conversation starters
                 chatContainer.innerHTML = '';
                 
                 if (data.welcome_message) {
                     const welcomeDiv = document.createElement('div');
                     welcomeDiv.className = 'flex justify-end mb-4 message-enter';
-                    welcomeDiv.innerHTML = `
-                        <div class="markdown-content bg-white px-4 sm:px-5 py-3 sm:py-4 rounded-2xl shadow-sm max-w-[85%] sm:max-w-[75%] text-[13px] sm:text-sm">
+                    
+                    // Build welcome message HTML
+                    let welcomeHTML = `
+                        <div class="welcome-bubble markdown-content px-4 sm:px-5 py-4 sm:py-5 rounded-2xl max-w-[90%] sm:max-w-[80%] text-[13px] sm:text-sm bg-white">
                             ${parseMarkdown(data.welcome_message)}
-                        </div>
                     `;
+                    
+                    // Add conversation starters if provided
+                    if (data.conversation_starters && data.conversation_starters.length > 0) {
+                        welcomeHTML += `
+                            <div class="helper-message-gradient mt-3 pt-3 border-t border-gray-100">
+                                <p class="text-[11px] sm:text-[12px] text-gray-500 mb-2">
+                                    برای شروع می‌توانید یکی از پیشنهادهای زیر را انتخاب کنید:
+                                </p>
+                                <div class="space-y-2">
+                        `;
+                        
+                        data.conversation_starters.forEach((starter, index) => {
+                            welcomeHTML += `
+                                <button class="suggestion-btn w-full text-right text-[12px] sm:text-[13px] text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-blue-50" data-suggestion="${escapeHtml(starter)}">
+                                    ${index + 1}) ${escapeHtml(starter)}
+                                </button>
+                            `;
+                        });
+                        
+                        welcomeHTML += `
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    welcomeHTML += `</div>`;
+                    
+                    welcomeDiv.innerHTML = welcomeHTML;
                     chatContainer.appendChild(welcomeDiv);
+                    
+                    // Attach click handlers to conversation starters
+                    chatContainer.querySelectorAll('.suggestion-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const suggestion = btn.getAttribute('data-suggestion');
+                            messageInput.value = suggestion;
+                            autoResizeTextarea();
+                            updateSendButton();
+                            sendMessage();
+                        });
+                    });
+                    
                     chatContainer.scrollTop = chatContainer.scrollHeight;
                 }
                 

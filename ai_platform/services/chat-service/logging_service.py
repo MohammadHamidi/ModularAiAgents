@@ -2,6 +2,7 @@
 Logging Service - Persists logs to PostgreSQL for log viewer.
 Logs API requests, traces, and conversation events.
 """
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -120,10 +121,18 @@ class LogService:
             LIMIT :limit OFFSET :offset
         """)
 
-        async with self.engine.begin() as conn:
-            total_row = (await conn.execute(count_sql, params)).fetchone()
-            total = total_row[0] if total_row else 0
-            rows = (await conn.execute(select_sql, params)).fetchall()
+        try:
+            async def _query():
+                async with self.engine.begin() as conn:
+                    total_row = (await conn.execute(count_sql, params)).fetchone()
+                    total = total_row[0] if total_row else 0
+                    rows = (await conn.execute(select_sql, params)).fetchall()
+                    return total, rows
+            total, rows = await asyncio.wait_for(_query(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception) as e:
+            # If query times out or fails, return empty result
+            logger.warning(f"Log query failed or timed out: {e}")
+            return {"items": [], "total": 0, "page": page, "limit": limit}
 
         items = []
         for r in rows:
@@ -160,19 +169,26 @@ class LogService:
             params["to_date"] = to_date
         where = " AND ".join(conditions) if conditions else "1=1"
 
-        async with self.engine.begin() as conn:
-            total = (await conn.execute(
-                text(f"SELECT COUNT(*) FROM service_logs WHERE {where}"),
-                params,
-            )).fetchone()[0]
-            by_type = dict((await conn.execute(
-                text(f"SELECT log_type, COUNT(*) FROM service_logs WHERE {where} GROUP BY log_type"),
-                params,
-            )).fetchall())
-            by_agent = dict((await conn.execute(
-                text(f"SELECT agent_key, COUNT(*) FROM service_logs WHERE {where} AND agent_key IS NOT NULL GROUP BY agent_key"),
-                params,
-            )).fetchall())
+        try:
+            async def _query():
+                async with self.engine.begin() as conn:
+                    total = (await conn.execute(
+                        text(f"SELECT COUNT(*) FROM service_logs WHERE {where}"),
+                        params,
+                    )).fetchone()[0]
+                    by_type = dict((await conn.execute(
+                        text(f"SELECT log_type, COUNT(*) FROM service_logs WHERE {where} GROUP BY log_type"),
+                        params,
+                    )).fetchall())
+                    by_agent = dict((await conn.execute(
+                        text(f"SELECT agent_key, COUNT(*) FROM service_logs WHERE {where} AND agent_key IS NOT NULL GROUP BY agent_key"),
+                        params,
+                    )).fetchall())
+                    return total, by_type, by_agent
+            total, by_type, by_agent = await asyncio.wait_for(_query(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning(f"Log stats query failed or timed out: {e}")
+            return {"total": 0, "by_type": {}, "by_agent": {}}
 
         return {
             "total": total,

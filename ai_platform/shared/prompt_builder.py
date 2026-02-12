@@ -134,6 +134,75 @@ def build_system_prompt(
             context_lines.append(f"  {i}. {content}")
         parts.append("\n".join(context_lines))
 
+    # Entry path context - where user came from (CRITICAL for understanding user's context)
+    if user_info:
+        entry_path_data = user_info.get("entry_path")
+        if entry_path_data:
+            entry_path = entry_path_data.get("value") if isinstance(entry_path_data, dict) else entry_path_data
+            if entry_path:
+                try:
+                    from shared.path_context_helper import format_entry_path_context
+                    entry_ctx = format_entry_path_context(entry_path)
+                    if entry_ctx:
+                        parts.append(entry_ctx)
+                except Exception:
+                    # Fallback: simple path display
+                    parts.append(f"📍 کاربر چت را از صفحه {entry_path} باز کرده است.")
+
+    # Action details context from Safiran API (if available)
+    if user_info:
+        action_details_data = user_info.get("action_details")
+        if action_details_data:
+            action_details = action_details_data.get("value") if isinstance(action_details_data, dict) else action_details_data
+            if isinstance(action_details, dict):
+                # Handle both flat and nested payloads
+                data_obj = action_details.get("data") if isinstance(action_details.get("data"), dict) else action_details
+                title = data_obj.get("title") or data_obj.get("name") or action_details.get("title")
+                desc = data_obj.get("description") or action_details.get("description")
+                if title:
+                    block = f"🧩 جزئیات کنش فعلی کاربر:\n- عنوان: {title}"
+                    if desc:
+                        desc_short = desc[:240] + ("..." if len(desc) > 240 else "")
+                        block += f"\n- توضیح: {desc_short}"
+                    parts.append(block)
+
+    # User actions summary context from Profile/GetMyActions
+    if user_info:
+        my_actions_data = user_info.get("user_my_actions")
+        if my_actions_data:
+            my_actions_payload = my_actions_data.get("value") if isinstance(my_actions_data, dict) else my_actions_data
+            total_count = None
+            if isinstance(my_actions_payload, dict):
+                # Try common count keys
+                for key in ("total", "totalCount", "count"):
+                    if isinstance(my_actions_payload.get(key), int):
+                        total_count = my_actions_payload.get(key)
+                        break
+                if total_count is None:
+                    # Try common list keys
+                    for key in ("items", "data", "result", "myActions"):
+                        val = my_actions_payload.get(key)
+                        if isinstance(val, list):
+                            total_count = len(val)
+                            break
+            elif isinstance(my_actions_payload, list):
+                total_count = len(my_actions_payload)
+
+            if isinstance(total_count, int):
+                parts.append(
+                    f"📈 وضعیت فعالیت کاربر:\n- تعداد کنش‌های کاربر در سیستم: {total_count}\n"
+                    "در پاسخ‌ها از این زمینه برای پیشنهادهای شخصی‌سازی‌شده استفاده کن."
+                )
+
+    # Website routes context - for redirecting users to correct URLs
+    try:
+        from shared.website_routes_loader import get_website_routes_context
+        routes_ctx = get_website_routes_context()
+        if routes_ctx:
+            parts.append(routes_ctx)
+    except Exception:
+        pass
+
     # Output format: never include citation artifacts from KB/LightRAG
     parts.append(
         "⚠️ OUTPUT FORMAT - NEVER include in your response:\n"
@@ -166,6 +235,29 @@ def build_context_summary(agent_config: Any, user_info: Dict[str, Any]) -> str:
     for key, data in user_info.items():
         value = data.get('value') if isinstance(data, dict) else data
         if value:
+            # Skip heavy payloads in inline context block (handled separately in system prompt)
+            if key in {"action_details", "user_my_actions"}:
+                if key == "action_details" and isinstance(value, dict):
+                    nested = value.get("data") if isinstance(value.get("data"), dict) else {}
+                    title = (
+                        value.get("title")
+                        or nested.get("title")
+                    )
+                    if title:
+                        parts.append(f"کنش فعلی: {title}")
+                elif key == "user_my_actions":
+                    total = None
+                    if isinstance(value, dict):
+                        total = value.get("total") if isinstance(value.get("total"), int) else None
+                        if total is None:
+                            items = value.get("items")
+                            if isinstance(items, list):
+                                total = len(items)
+                    elif isinstance(value, list):
+                        total = len(value)
+                    if isinstance(total, int):
+                        parts.append(f"تعداد کنش‌های کاربر: {total}")
+                continue
             label = field_labels.get(key, key)
             if isinstance(value, list):
                 value = '، '.join(str(v) for v in value)

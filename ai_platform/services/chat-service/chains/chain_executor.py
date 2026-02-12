@@ -37,11 +37,18 @@ def _post_process_output(
     """
     result = output
 
-    # Konesh scope validation for action_expert
-    if agent_key == "action_expert":
-        konesh_keywords = ["کنش", "محفل", "صبحگاه", "فضاسازی", "مسجد", "مدرسه", "خانه"]
+    # Konesh scope validation for action_expert and content_generation_expert
+    if agent_key in ("action_expert", "content_generation_expert"):
+        konesh_keywords = ["کنش", "محفل", "صبحگاه", "فضاسازی", "مسجد", "مدرسه", "خانه", "محتوا", "اسکریپت", "متن"]
         if not any(kw in user_message.lower() for kw in konesh_keywords):
-            return """من متخصص کنش‌های قرآنی سفیران آیه‌ها هستم و فقط می‌تونم در مورد انتخاب، طراحی و اجرای کنش‌ها کمکت کنم.
+            if agent_key == "content_generation_expert":
+                return """من متخصص پیشرفته تولید محتوا برای کنش‌های قرآنی سفیران آیه‌ها هستم و فقط می‌تونم در مورد تولید محتوا، اسکریپت و راهنمای عملیاتی کنش‌ها کمکت کنم.
+اگه می‌خوای برای این موقعیت محتوای کامل و حرفه‌ای تولید کنی، خوشحال می‌شم راهنماییت کنم!
+پیشنهادهای بعدی:
+1) بگو چه بستری در اختیار داری (خانه، مدرسه، مسجد، فضای مجازی)
+2) بگو نقشت چیه (معلم، دانش‌آموز، والد، مبلغ، سخنران)"""
+            else:
+                return """من متخصص کنش‌های قرآنی سفیران آیه‌ها هستم و فقط می‌تونم در مورد انتخاب، طراحی و اجرای کنش‌ها کمکت کنم.
 اگه می‌خوای برای این موقعیت یه کنش یا محفل قرآنی برگزار کنی، خوشحال می‌شم راهنماییت کنم!
 پیشنهادهای بعدی:
 1) بگو چه بستری در اختیار داری (خانه، مدرسه، مسجد، فضای مجازی)
@@ -78,6 +85,8 @@ class ChainExecutor:
         agent_configs: Dict[str, Any],
         kb_tool: Any,
         konesh_tool: Optional[Any] = None,
+        safiran_content_tool: Optional[Any] = None,
+        safiran_action_tool: Optional[Any] = None,
         log_service: Optional[Any] = None,
     ):
         """
@@ -85,11 +94,15 @@ class ChainExecutor:
             agent_configs: {agent_key: AgentConfig} e.g. from AGENT_CONFIGS
             kb_tool: KnowledgeBaseTool instance
             konesh_tool: Optional KoneshQueryTool
+            safiran_content_tool: Optional Safiran content tool
+            safiran_action_tool: Optional Safiran action tool
             log_service: Optional LogService for persisting traces
         """
         self.agent_configs = agent_configs
         self.kb_tool = kb_tool
         self.konesh_tool = konesh_tool
+        self.safiran_content_tool = safiran_content_tool
+        self.safiran_action_tool = safiran_action_tool
         self.log_service = log_service
         self.router = RouterChain()
         self._specialists: Dict[str, SpecialistChain] = {}
@@ -101,12 +114,17 @@ class ChainExecutor:
         config = self.agent_configs.get(agent_key)
         if not config:
             return None
-        konesh = self.konesh_tool if agent_key == "action_expert" else None
+        # Both action_expert and content_generation_expert use konesh_tool
+        konesh = self.konesh_tool if agent_key in ("action_expert", "content_generation_expert") else None
+        safiran_content = self.safiran_content_tool if agent_key == "content_generation_expert" else None
+        safiran_action = self.safiran_action_tool if agent_key == "action_expert" else None
         chain = SpecialistChain(
             agent_key=agent_key,
             agent_config=config,
             kb_tool=self.kb_tool,
             konesh_tool=konesh,
+            safiran_content_tool=safiran_content,
+            safiran_action_tool=safiran_action,
         )
         self._specialists[agent_key] = chain
         return chain

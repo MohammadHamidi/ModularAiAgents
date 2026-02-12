@@ -63,6 +63,8 @@ class SpecialistChain:
         agent_config: Any,
         kb_tool: Any,
         konesh_tool: Optional[Any] = None,
+        safiran_content_tool: Optional[Any] = None,
+        safiran_action_tool: Optional[Any] = None,
     ):
         """
         Args:
@@ -70,11 +72,15 @@ class SpecialistChain:
             agent_config: Full agent config from YAML
             kb_tool: KnowledgeBaseTool instance
             konesh_tool: Optional KoneshQueryTool for action_expert
+            safiran_content_tool: Optional Safiran content query tool
+            safiran_action_tool: Optional Safiran action query tool
         """
         self.agent_key = agent_key
         self.agent_config = agent_config
         self.kb_tool = kb_tool
         self.konesh_tool = konesh_tool
+        self.safiran_content_tool = safiran_content_tool
+        self.safiran_action_tool = safiran_action_tool
         model_config = getattr(agent_config, "model_config", {}) or {}
         temp = model_config.get("temperature", 0.7)
         self.llm = _create_llm(temperature=temp)
@@ -117,6 +123,48 @@ class SpecialistChain:
             logger.warning(f"Konesh retrieval failed: {e}")
         return ""
 
+    def _extract_action_id_from_user_info(self, user_info: Dict[str, Any]) -> Optional[int]:
+        entry_path_data = (user_info or {}).get("entry_path")
+        if not entry_path_data:
+            return None
+        entry_path = entry_path_data.get("value") if isinstance(entry_path_data, dict) else entry_path_data
+        if not isinstance(entry_path, str):
+            return None
+        import re
+        m = re.search(r"/actions/(\d+)", entry_path)
+        return int(m.group(1)) if m else None
+
+    async def _retrieve_safiran_content(self, user_message: str, user_info: Dict[str, Any]) -> str:
+        if not self.safiran_content_tool:
+            return ""
+        try:
+            action_id = self._extract_action_id_from_user_info(user_info)
+            kwargs: Dict[str, Any] = {"query": user_message, "page": 1, "page_size": 6}
+            if action_id:
+                kwargs["action_ids"] = [action_id]
+            result = await self.safiran_content_tool.execute(**kwargs)
+            if result and "error" not in result.lower():
+                return f"[Safiran Content Context]\n{result[:3500]}"
+        except Exception as e:
+            logger.warning(f"Safiran content retrieval failed: {e}")
+        return ""
+
+    async def _retrieve_safiran_actions(self, user_message: str, user_info: Dict[str, Any]) -> str:
+        if not self.safiran_action_tool:
+            return ""
+        try:
+            # Basic personalized hint from shared context
+            level_val = (user_info.get("user_level") or {}).get("value") if isinstance(user_info.get("user_level"), dict) else None
+            kwargs: Dict[str, Any] = {"query": user_message, "page": 1, "page_size": 8}
+            if isinstance(level_val, int):
+                kwargs["levels"] = [level_val]
+            result = await self.safiran_action_tool.execute(**kwargs)
+            if result and "error" not in result.lower():
+                return f"[Safiran Actions Context]\n{result[:3500]}"
+        except Exception as e:
+            logger.warning(f"Safiran action retrieval failed: {e}")
+        return ""
+
     async def run(
         self,
         user_message: str,
@@ -142,6 +190,18 @@ class SpecialistChain:
             konesh_context = await self._retrieve_konesh(user_message)
         if konesh_context:
             kb_context = (kb_context + "\n\n" + konesh_context) if kb_context else konesh_context
+
+        # Optional Safiran content context for content_generation_expert
+        if self.agent_key == "content_generation_expert" and self.safiran_content_tool:
+            content_ctx = await self._retrieve_safiran_content(user_message, user_info or {})
+            if content_ctx:
+                kb_context = (kb_context + "\n\n" + content_ctx) if kb_context else content_ctx
+
+        # Optional Safiran action recommendation context for action_expert
+        if self.agent_key == "action_expert" and self.safiran_action_tool:
+            actions_ctx = await self._retrieve_safiran_actions(user_message, user_info or {})
+            if actions_ctx:
+                kb_context = (kb_context + "\n\n" + actions_ctx) if kb_context else actions_ctx
 
         if not kb_context:
             kb_context = "(No KB context retrieved - answer from general knowledge if needed.)"
