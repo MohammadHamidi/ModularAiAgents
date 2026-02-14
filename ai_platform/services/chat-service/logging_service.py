@@ -20,6 +20,9 @@ class LogService:
     def __init__(self, engine: AsyncEngine):
         self.engine = engine
 
+    REQUEST_BODY_MAX = 20_000
+    RESPONSE_BODY_MAX = 50_000
+
     async def append_log(
         self,
         log_type: str,
@@ -28,8 +31,10 @@ class LogService:
         method: Optional[str] = None,
         path: Optional[str] = None,
         status_code: Optional[int] = None,
-        request_body: Optional[Dict[str, Any]] = None,
+        request_headers: Optional[Dict[str, str]] = None,
+        request_body: Optional[Any] = None,
         response_summary: Optional[str] = None,
+        response_body: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         duration_ms: Optional[float] = None,
     ) -> None:
@@ -38,18 +43,20 @@ class LogService:
         Truncates/sanitizes large fields.
         """
         if request_body is not None:
-            body_str = json.dumps(request_body, ensure_ascii=False)[:2000]
+            body_str = json.dumps(request_body, ensure_ascii=False)[: self.REQUEST_BODY_MAX]
         else:
             body_str = None
+        headers_str = json.dumps(request_headers or {}, ensure_ascii=False)
+        resp_body_str = (response_body or "")[: self.RESPONSE_BODY_MAX] if response_body else None
 
         stmt = text("""
             INSERT INTO service_logs (
                 log_type, session_id, agent_key, method, path,
-                status_code, request_body, response_summary, metadata, duration_ms
+                status_code, request_headers, request_body, response_summary, response_body, metadata, duration_ms
             ) VALUES (
                 :log_type, :session_id, :agent_key, :method, :path,
-                :status_code, CAST(:request_body AS jsonb), :response_summary,
-                CAST(:metadata AS jsonb), :duration_ms
+                :status_code, CAST(:request_headers AS jsonb), CAST(:request_body AS jsonb),
+                :response_summary, :response_body, CAST(:metadata AS jsonb), :duration_ms
             )
         """)
         params = {
@@ -59,8 +66,10 @@ class LogService:
             "method": method,
             "path": path,
             "status_code": status_code,
+            "request_headers": headers_str,
             "request_body": body_str or "null",
             "response_summary": (response_summary or "")[:2000] if response_summary else None,
+            "response_body": resp_body_str,
             "metadata": json.dumps(metadata or {}, ensure_ascii=False),
             "duration_ms": duration_ms,
         }
@@ -105,7 +114,7 @@ class LogService:
             conditions.append("created_at <= :to_date::timestamptz")
             params["to_date"] = to_date
         if search:
-            conditions.append("(request_body::text ILIKE :search OR response_summary ILIKE :search OR metadata::text ILIKE :search)")
+            conditions.append("(request_body::text ILIKE :search OR response_summary ILIKE :search OR response_body ILIKE :search OR metadata::text ILIKE :search)")
             params["search"] = f"%{search}%"
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -114,7 +123,7 @@ class LogService:
         count_sql = text(f"SELECT COUNT(*) FROM service_logs WHERE {where_clause}")
         select_sql = text(f"""
             SELECT id, created_at, log_type, session_id, agent_key, method, path,
-                   status_code, request_body, response_summary, metadata, duration_ms
+                   status_code, request_headers, request_body, response_summary, response_body, metadata, duration_ms
             FROM service_logs
             WHERE {where_clause}
             ORDER BY created_at {order}
@@ -145,10 +154,12 @@ class LogService:
                 "method": r[5],
                 "path": r[6],
                 "status_code": r[7],
-                "request_body": r[8],
-                "response_summary": r[9],
-                "metadata": r[10],
-                "duration_ms": r[11],
+                "request_headers": r[8],
+                "request_body": r[9],
+                "response_summary": r[10],
+                "response_body": r[11],
+                "metadata": r[12],
+                "duration_ms": r[13],
             })
 
         return {"items": items, "total": total, "page": page, "limit": limit}

@@ -41,8 +41,10 @@ CREATE TABLE IF NOT EXISTS service_logs (
     method VARCHAR(10),
     path VARCHAR(500),
     status_code INTEGER,
+    request_headers JSONB,
     request_body JSONB,
     response_summary TEXT,
+    response_body TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
     duration_ms FLOAT
 );

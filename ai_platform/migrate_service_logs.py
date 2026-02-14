@@ -25,8 +25,10 @@ CREATE TABLE IF NOT EXISTS service_logs (
     method VARCHAR(10),
     path VARCHAR(500),
     status_code INTEGER,
+    request_headers JSONB,
     request_body JSONB,
     response_summary TEXT,
+    response_body TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
     duration_ms FLOAT
 );
@@ -34,6 +36,19 @@ CREATE INDEX IF NOT EXISTS idx_service_logs_created_at ON service_logs(created_a
 CREATE INDEX IF NOT EXISTS idx_service_logs_session_id ON service_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_service_logs_agent_key ON service_logs(agent_key);
 CREATE INDEX IF NOT EXISTS idx_service_logs_log_type ON service_logs(log_type);
+"""
+
+# Add columns for existing tables (run once; safe to run multiple times with DO block)
+ADD_COLUMNS_SQL = """
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'service_logs' AND column_name = 'request_headers') THEN
+        ALTER TABLE service_logs ADD COLUMN request_headers JSONB;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'service_logs' AND column_name = 'response_body') THEN
+        ALTER TABLE service_logs ADD COLUMN response_body TEXT;
+    END IF;
+END $$;
 """
 
 
@@ -50,6 +65,8 @@ async def migrate():
                 if stmt:
                     await conn.execute(text(stmt))
                     print("OK:", stmt[:60] + "..." if len(stmt) > 60 else stmt)
+            await conn.execute(text(ADD_COLUMNS_SQL))
+            print("OK: ensure request_headers and response_body columns exist")
         await engine.dispose()
         print("\nDone. service_logs table is ready.")
         return 0

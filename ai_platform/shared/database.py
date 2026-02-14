@@ -69,5 +69,32 @@ class SessionManager:
                 },
             )
 
+    async def list_sessions(self, limit: int = 500):
+        """
+        List all chat sessions (for admin/monitoring).
+        Returns list of dicts with session_id, messages, agent_type, metadata, created_at, updated_at.
+        """
+        async with self.engine.begin() as conn:
+            rows = (await conn.execute(
+                text("""
+                    SELECT session_id, messages, agent_type, metadata, created_at, updated_at
+                    FROM chat_sessions
+                    ORDER BY updated_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit},
+            )).fetchall()
+        return [
+            {
+                "session_id": str(r[0]),
+                "messages": r[1],
+                "agent_type": r[2],
+                "metadata": r[3] or {},
+                "created_at": r[4].isoformat() if r[4] else None,
+                "updated_at": r[5].isoformat() if r[5] else None,
+            }
+            for r in rows
+        ]
+
     async def dispose(self):
         await self.engine.dispose()

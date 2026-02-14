@@ -81,6 +81,7 @@ ICON_PATH = find_static_file("Icon.png")
 FAVICON_PATH = find_static_file("favicon.ico")
 MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 LOG_VIEWER_PATH = find_static_file("log_viewer.html")
+USERS_VIEW_PATH = find_static_file("users_view.html")
 
 
 # =============================================================================
@@ -619,6 +620,47 @@ async def get_service_logs_stats(
         if to_date:
             params["to_date"] = to_date
         response = await http_client.get("/monitoring/logs/stats", params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/users/view", response_class=HTMLResponse, tags=["Monitoring", "UI"])
+async def serve_users_view():
+    """
+    Serve the User Management UI: list users (Safiranayeha user IDs), view details,
+    GetAIUserData, sessions, chat history, and context per user.
+    """
+    if USERS_VIEW_PATH.exists():
+        return FileResponse(
+            USERS_VIEW_PATH,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"}
+        )
+    raise HTTPException(status_code=404, detail="users_view.html not found")
+
+
+@app.get("/monitoring/users", tags=["Monitoring"])
+async def list_monitoring_users(limit: int = 200):
+    """List users (Safiranayeha user IDs) with session counts and last activity."""
+    try:
+        response = await http_client.get("/monitoring/users", params={"limit": limit})
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+
+@app.get("/monitoring/users/{user_id}", tags=["Monitoring"])
+async def get_monitoring_user_detail(user_id: str):
+    """Get full user detail: GetAIUserData, sessions, chat history, context."""
+    try:
+        response = await http_client.get(f"/monitoring/users/{user_id}")
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:

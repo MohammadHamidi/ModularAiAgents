@@ -114,9 +114,30 @@
     <!-- Expandable row template (hidden) -->
     <template id="detail-row-tpl">
         <tr class="detail-row border-b border-gray-800 bg-gray-900/80">
-            <td colspan="9" class="p-4">
-                <div class="text-xs font-mono text-gray-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto"></div>
-            </div>
+            <td colspan="9" class="p-4 align-top">
+                <div class="grid grid-cols-1 gap-3 text-xs font-mono">
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Request headers</div>
+                        <pre class="p-2 text-gray-300 whitespace-pre-wrap break-words max-h-32 overflow-y-auto detail-headers"></pre>
+                    </section>
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Request body</div>
+                        <pre class="p-2 text-gray-300 whitespace-pre-wrap break-words max-h-40 overflow-y-auto detail-request-body"></pre>
+                    </section>
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Response summary</div>
+                        <pre class="p-2 text-gray-300 whitespace-pre-wrap break-words max-h-24 overflow-y-auto detail-response-summary"></pre>
+                    </section>
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Response body</div>
+                        <pre class="p-2 text-gray-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto detail-response-body"></pre>
+                    </section>
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Metadata</div>
+                        <pre class="p-2 text-gray-300 whitespace-pre-wrap break-words max-h-24 overflow-y-auto detail-metadata"></pre>
+                    </section>
+                </div>
+            </td>
         </tr>
     </template>
 
@@ -244,13 +265,12 @@
             function renderDetailRow(item) {
                 const tpl = document.getElementById('detail-row-tpl');
                 const tr = tpl.content.cloneNode(true).querySelector('tr');
-                const details = {};
-                if (item.request_body) details.request_body = item.request_body;
-                if (item.response_summary) details.response_summary = item.response_summary;
-                if (item.metadata && Object.keys(item.metadata).length) details.metadata = item.metadata;
-                tr.querySelector('div').textContent = Object.keys(details).length
-                    ? JSON.stringify(details, null, 2)
-                    : '(no details)';
+                const fmt = (v) => v == null || v === '' ? '(none)' : (typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v));
+                tr.querySelector('.detail-headers').textContent = fmt(item.request_headers);
+                tr.querySelector('.detail-request-body').textContent = fmt(item.request_body);
+                tr.querySelector('.detail-response-summary').textContent = fmt(item.response_summary);
+                tr.querySelector('.detail-response-body').textContent = fmt(item.response_body);
+                tr.querySelector('.detail-metadata').textContent = fmt(item.metadata);
                 return tr;
             }
 
@@ -328,7 +348,7 @@
                     if (!res.ok) throw new Error(res.statusText);
                     const data = await res.json();
                     const items = data.items || [];
-                    const headers = ['created_at','log_type','session_id','agent_key','method','path','status_code','duration_ms','request_body','response_summary'];
+                    const headers = ['created_at','log_type','session_id','agent_key','method','path','status_code','duration_ms','request_headers','request_body','response_summary','response_body'];
                     const lines = [headers.join(',')];
                     items.forEach(r => {
                         const row = headers.map(h => {

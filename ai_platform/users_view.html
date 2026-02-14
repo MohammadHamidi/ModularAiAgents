@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased">
+    <div class="flex flex-col h-screen overflow-hidden">
+        <header class="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+            <h1 class="text-xl font-semibold tracking-tight">User Management</h1>
+            <div class="flex gap-3">
+                <a href="/monitoring/dashboard" class="text-sm text-blue-400 hover:text-blue-300">Trace Dashboard</a>
+                <a href="/monitoring/logs/view" class="text-sm text-blue-400 hover:text-blue-300">Logs</a>
+            </div>
+        </header>
+
+        <!-- List view -->
+        <div id="list-view" class="flex-1 flex flex-col overflow-hidden">
+            <div class="px-6 py-3 bg-gray-900/50 border-b border-gray-800 text-sm text-gray-400 flex-shrink-0">
+                <span id="list-stats">Loading users…</span>
+            </div>
+            <div class="flex-1 overflow-auto px-6 py-4">
+                <table class="w-full text-sm border-collapse">
+                    <thead class="sticky top-0 bg-gray-900 z-10">
+                        <tr class="text-left text-gray-400 border-b border-gray-700">
+                            <th class="pb-2 pr-4 font-medium">User ID</th>
+                            <th class="pb-2 pr-4 font-medium">Sessions</th>
+                            <th class="pb-2 pr-4 font-medium">Last activity</th>
+                            <th class="pb-2 font-medium w-24"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-rows">
+                        <tr><td colspan="4" class="py-8 text-center text-gray-500">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Detail view (hidden by default) -->
+        <div id="detail-view" class="hidden flex-1 flex flex-col overflow-hidden">
+            <div class="px-6 py-3 bg-gray-900 border-b border-gray-700 flex items-center gap-4 flex-shrink-0">
+                <button type="button" id="btn-back" class="text-sm text-blue-400 hover:text-blue-300">← Back to list</button>
+                <h2 id="detail-title" class="text-lg font-medium">User <span id="detail-user-id"></span></h2>
+            </div>
+            <div class="flex-1 overflow-auto px-6 py-4 space-y-6">
+                <!-- Safiran User Data (GetAIUserData) -->
+                <section class="rounded-lg border border-gray-700 overflow-hidden">
+                    <div class="px-4 py-2 bg-gray-800 text-gray-200 font-semibold">Safiran User Data (GetAIUserData)</div>
+                    <div id="safiran-data" class="p-4 font-mono text-sm text-gray-300 whitespace-pre-wrap break-words"></div>
+                    <div id="safiran-error" class="hidden p-4 text-amber-400 text-sm"></div>
+                </section>
+                <!-- Sessions -->
+                <section class="rounded-lg border border-gray-700 overflow-hidden">
+                    <div class="px-4 py-2 bg-gray-800 text-gray-200 font-semibold">Sessions</div>
+                    <div id="sessions-list" class="divide-y divide-gray-800"></div>
+                    <div id="sessions-error" class="hidden p-4 text-amber-400 text-sm"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const listView = document.getElementById('list-view');
+            const detailView = document.getElementById('detail-view');
+            const listStats = document.getElementById('list-stats');
+            const userRows = document.getElementById('user-rows');
+            const btnBack = document.getElementById('btn-back');
+            const detailUserId = document.getElementById('detail-user-id');
+            const safiranData = document.getElementById('safiran-data');
+            const safiranError = document.getElementById('safiran-error');
+            const sessionsList = document.getElementById('sessions-list');
+            const sessionsError = document.getElementById('sessions-error');
+
+            async function fetchUsers() {
+                const res = await fetch('/monitoring/users?limit=200');
+                if (!res.ok) throw new Error(res.statusText);
+                return res.json();
+            }
+
+            async function fetchUserDetail(userId) {
+                const res = await fetch('/monitoring/users/' + encodeURIComponent(userId));
+                if (!res.ok) throw new Error(res.statusText);
+                return res.json();
+            }
+
+            function showList() {
+                listView.classList.remove('hidden');
+                listView.classList.add('flex');
+                detailView.classList.add('hidden');
+            }
+
+            function showDetail(userId) {
+                listView.classList.add('hidden');
+                detailView.classList.remove('hidden');
+                detailUserId.textContent = userId;
+                loadUserDetail(userId);
+            }
+
+            function renderUserRow(u) {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer';
+                const lastActivity = u.last_activity ? new Date(u.last_activity).toLocaleString() : '—';
+                tr.innerHTML = `
+                    <td class="py-2 pr-4 font-mono text-gray-200">${escapeHtml(u.user_id)}</td>
+                    <td class="py-2 pr-4 text-gray-400">${u.session_count}</td>
+                    <td class="py-2 pr-4 text-gray-400">${lastActivity}</td>
+                    <td class="py-2"><span class="text-blue-400 text-xs">View →</span></td>
+                `;
+                tr.addEventListener('click', () => showDetail(u.user_id));
+                return tr;
+            }
+
+            function escapeHtml(s) {
+                if (s == null) return '';
+                const div = document.createElement('div');
+                div.textContent = s;
+                return div.innerHTML;
+            }
+
+            function fmtJson(o) {
+                if (o == null) return '(none)';
+                return typeof o === 'object' ? JSON.stringify(o, null, 2) : String(o);
+            }
+
+            async function loadUserDetail(userId) {
+                safiranData.textContent = 'Loading…';
+                safiranData.classList.remove('hidden');
+                safiranError.classList.add('hidden');
+                sessionsList.innerHTML = '<div class="p-4 text-gray-500">Loading…</div>';
+                sessionsError.classList.add('hidden');
+
+                try {
+                    const data = await fetchUserDetail(userId);
+
+                    if (data.safiran_user_data) {
+                        safiranData.textContent = fmtJson(data.safiran_user_data);
+                        safiranData.classList.remove('hidden');
+                    } else if (data.safiran_user_data_error) {
+                        safiranError.textContent = 'Error: ' + data.safiran_user_data_error;
+                        safiranError.classList.remove('hidden');
+                        safiranData.classList.add('hidden');
+                    } else {
+                        safiranData.textContent = '(No data or user not found)';
+                    }
+
+                    if (data.sessions_error) {
+                        sessionsError.textContent = data.sessions_error;
+                        sessionsError.classList.remove('hidden');
+                        sessionsList.innerHTML = '';
+                    } else if (data.sessions && data.sessions.length) {
+                        sessionsList.innerHTML = '';
+                        data.sessions.forEach((s, idx) => {
+                            const card = document.createElement('div');
+                            card.className = 'session-card border-b border-gray-800 last:border-0';
+                            const shortId = s.session_id.slice(0, 8) + '…';
+                            card.innerHTML = `
+                                <div class="session-header flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-800/50" data-session-idx="${idx}">
+                                    <div class="flex items-center gap-4">
+                                        <span class="expand-icon text-gray-500 text-xs">▼</span>
+                                        <span class="font-mono text-gray-300">${shortId}</span>
+                                        <span class="text-gray-500 text-xs">${s.agent_type || '—'}</span>
+                                        <span class="text-gray-500 text-xs">${s.message_count || 0} messages</span>
+                                        <span class="text-gray-500 text-xs">${s.updated_at ? new Date(s.updated_at).toLocaleString() : ''}</span>
+                                    </div>
+                                </div>
+                                <div class="session-body hidden px-4 pb-4">
+                                    <div class="grid grid-cols-1 gap-4">
+                                        <div>
+                                            <div class="text-xs text-gray-400 font-semibold mb-1">Chat history</div>
+                                            <pre class="p-3 bg-gray-900 rounded text-xs text-gray-300 whitespace-pre-wrap break-words max-h-64 overflow-y-auto messages-block"></pre>
+                                        </div>
+                                        <div>
+                                            <div class="text-xs text-gray-400 font-semibold mb-1">Context</div>
+                                            <pre class="p-3 bg-gray-900 rounded text-xs text-gray-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto context-block"></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                            const header = card.querySelector('.session-header');
+                            const body = card.querySelector('.session-body');
+                            const icon = card.querySelector('.expand-icon');
+                            const messagesBlock = card.querySelector('.messages-block');
+                            const contextBlock = card.querySelector('.context-block');
+                            messagesBlock.textContent = fmtJson(s.messages);
+                            contextBlock.textContent = fmtJson(s.context);
+                            header.addEventListener('click', () => {
+                                const isOpen = !body.classList.contains('hidden');
+                                body.classList.toggle('hidden', isOpen);
+                                icon.textContent = isOpen ? '▼' : '▲';
+                            });
+                            sessionsList.appendChild(card);
+                        });
+                    } else {
+                        sessionsList.innerHTML = '<div class="p-4 text-gray-500">No sessions for this user.</div>';
+                    }
+                } catch (e) {
+                    safiranError.textContent = 'Failed to load: ' + e.message;
+                    safiranError.classList.remove('hidden');
+                    sessionsList.innerHTML = '';
+                }
+            }
+
+            async function loadList() {
+                listStats.textContent = 'Loading…';
+                userRows.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-gray-500">Loading…</td></tr>';
+                try {
+                    const data = await fetchUsers();
+                    const users = data.users || [];
+                    listStats.textContent = users.length + ' user(s)';
+                    userRows.innerHTML = '';
+                    if (users.length === 0) {
+                        userRows.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-gray-500">No users with Safiranayeha user ID found. Users appear after chat/init with encrypted_param or user_id.</td></tr>';
+                    } else {
+                        users.forEach(u => userRows.appendChild(renderUserRow(u)));
+                    }
+                } catch (e) {
+                    listStats.textContent = 'Error: ' + e.message;
+                    userRows.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-amber-400">Failed to load users.</td></tr>';
+                }
+            }
+
+            btnBack.addEventListener('click', () => { showList(); loadList(); });
+            loadList();
+        })();
+    </script>
+</body>
+</html>

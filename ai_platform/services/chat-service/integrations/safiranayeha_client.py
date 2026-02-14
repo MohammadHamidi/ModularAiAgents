@@ -236,7 +236,15 @@ class SafiranayehaClient:
                 headers=headers,
             )
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "Safiranayeha API error: %s %s -> %s body=%s",
+                method, url, e.response.status_code,
+                (e.response.text or "")[:500],
+            )
+            raise
         if not response.text:
             return {}
         try:
@@ -246,30 +254,38 @@ class SafiranayehaClient:
 
     async def get_user_data(self, user_id: str) -> Dict[str, Any]:
         """
-        Get user data from Safiranayeha API.
+        Get user data from Safiranayeha API (GET /api/AI/GetAIUserData).
 
         Args:
             user_id: User ID from encrypted parameter
 
         Returns:
-            User data dictionary
+            User data dictionary (inner "data" object when API returns { data, isSuccess, message, statusCode })
 
         Raises:
             httpx.HTTPError: If API request fails
         """
         try:
             logger.info(f"Fetching user data for user_id={user_id}")
-            user_data = await self._request(
+            raw = await self._request(
                 method="GET",
                 endpoint=self.USER_DATA_ENDPOINT,
                 params={"UserId": user_id},
                 require_auth=True,
             )
-            logger.info(f"Successfully fetched user data: {list(user_data.keys())}")
-            return user_data
+            # API returns { data: { fullName, province, ... }, isSuccess, message, statusCode }
+            user_data = raw.get("data", raw) if isinstance(raw, dict) else raw
+            if isinstance(user_data, dict):
+                # Normalize API typos for consistent context keys
+                if "mounthOfBirth" in user_data and "birthMonth" not in user_data:
+                    user_data["birthMonth"] = user_data["mounthOfBirth"]
+                if "reseredActionCount" in user_data and "registeredActionCount" not in user_data:
+                    user_data["registeredActionCount"] = user_data["reseredActionCount"]
+            logger.info(f"Successfully fetched user data: {list(user_data.keys()) if isinstance(user_data, dict) else 'n/a'}")
+            return user_data if isinstance(user_data, dict) else {}
         except Exception as e:
-            logger.error(f"Failed to fetch user data: {e}")
-            raise
+            logger.warning("Safiranayeha GetAIUserData failed for user_id=%s: %s", user_id, e, exc_info=False)
+            return {}
 
     async def get_action_details(self, action_id: int) -> Dict[str, Any]:
         """Get action details by id from Home/GetOneAction."""
@@ -325,21 +341,16 @@ class SafiranayehaClient:
             logger.warning(f"Failed to fetch content list: {e}")
             return {}
 
-    async def get_user_data_typed(self, user_id: str) -> SafiranayehaUserData:
+    async def get_user_data_typed(self, user_id: str) -> Optional[SafiranayehaUserData]:
         """
-        Get user data as typed model.
-
-        Args:
-            user_id: User ID from encrypted parameter
-
-        Returns:
-            SafiranayehaUserData instance
-
-        Raises:
-            httpx.HTTPError: If API request fails
+        Get user data as typed model. Returns None if the API call fails.
         """
-        data = await self.get_user_data(user_id)
-        return SafiranayehaUserData(**data)
+        try:
+            data = await self.get_user_data(user_id)
+            return SafiranayehaUserData(**data) if data else None
+        except Exception as e:
+            logger.warning("get_user_data_typed failed for user_id=%s: %s", user_id, e)
+            return None
 
     def normalize_user_data_for_context(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -359,7 +370,7 @@ class SafiranayehaClient:
         """
         normalized = {}
 
-        # Field mapping: API field -> context field
+        # Field mapping: API field -> context field (includes GetAIUserData response shape)
         field_mapping = {
             # Personal Information
             "phoneNumber": "user_phone",
@@ -369,16 +380,22 @@ class SafiranayehaClient:
             "gender": "user_gender",
             "birthMonth": "user_birth_month",
             "birth_month": "user_birth_month",
+            "mounthOfBirth": "user_birth_month",
             "birthYear": "user_birth_year",
             "birth_year": "user_birth_year",
+            "yearOfBirth": "user_birth_year",
 
             # Residence Information
             "province": "user_province",
             "city": "user_city",
 
-            # Activity Information
+            # Activity Information (GetAIUserData: doneActionCount, score, reseredActionCount, level)
             "registeredActions": "user_registered_actions",
             "registered_actions": "user_registered_actions",
+            "reseredActionCount": "user_registered_action_count",
+            "registeredActionCount": "user_registered_action_count",
+            "doneActionCount": "user_done_action_count",
+            "done_action_count": "user_done_action_count",
             "score": "user_score",
             "pendingReports": "user_pending_reports",
             "pending_reports": "user_pending_reports",

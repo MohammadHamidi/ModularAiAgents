@@ -11,6 +11,8 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
@@ -92,15 +94,63 @@ app.add_middleware(
 # API Request Logging Middleware
 # =============================================================================
 
-async def api_request_logging_middleware(request, call_next):
-    """Log API requests to service_logs for the log viewer."""
+def _redact_headers(headers: dict) -> dict:
+    """Return a copy with sensitive headers redacted."""
+    redacted = dict(headers)
+    for key in ("authorization", "cookie", "x-api-key"):
+        if key in redacted:
+            redacted[key] = "[redacted]"
+    return redacted
+
+
+async def api_request_logging_middleware(request: StarletteRequest, call_next):
+    """Log API requests to service_logs with full request/response headers and body."""
     start = time.perf_counter()
-    response = await call_next(request)
+    # Read request body once and re-inject so route handlers can still read it
+    body_bytes = await request.body()
+    async def receive():
+        return {"type": "http.request", "body": body_bytes}
+    req = StarletteRequest(request.scope, receive=receive)
+    request_headers = _redact_headers(dict(request.headers)) if request.headers else {}
+
+    response = await call_next(req)
     duration_ms = (time.perf_counter() - start) * 1000
+
     # Skip logging for health/docs/monitoring to avoid blocking when DB is unreachable
     skip_paths = ("/health", "/health/stream", "/monitoring/logs", "/monitoring/logs/stats")
     if request.url.path in skip_paths or request.url.path.startswith("/doc") or request.url.path.startswith("/openapi") or request.url.path.startswith("/redoc"):
         return response
+
+    # Capture response body (buffer streaming responses so we can log and return the same bytes)
+    response_body_bytes = b""
+    if getattr(response, "body_iterator", None) is not None:
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        response_body_bytes = b"".join(chunks)
+        response = StarletteResponse(
+            content=response_body_bytes,
+            status_code=response.status_code,
+            headers=dict(response.headers) if response.headers else {},
+            media_type=getattr(response, "media_type", None),
+        )
+    elif getattr(response, "body", None) is not None:
+        response_body_bytes = response.body
+
+    response_body_str = response_body_bytes.decode("utf-8", errors="replace") if response_body_bytes else ""
+
+    # Parse request body for logging (JSON when possible)
+    request_body_for_log: Any = None
+    if body_bytes:
+        ct = (request.headers.get("content-type") or "").lower()
+        if "application/json" in ct:
+            try:
+                request_body_for_log = json.loads(body_bytes.decode("utf-8", errors="replace"))
+            except Exception:
+                request_body_for_log = {"_raw": body_bytes.decode("utf-8", errors="replace")[:5000]}
+        else:
+            request_body_for_log = {"_raw": body_bytes.decode("utf-8", errors="replace")[:5000]}
+
     log_svc = getattr(request.app.state, "log_service", None)
     if log_svc:
         agent_key = None
@@ -125,6 +175,9 @@ async def api_request_logging_middleware(request, call_next):
                     method=request.method,
                     path=request.url.path,
                     status_code=response.status_code,
+                    request_headers=request_headers,
+                    request_body=request_body_for_log,
+                    response_body=response_body_str,
                     duration_ms=round(duration_ms, 2),
                 )
             except Exception:
@@ -738,9 +791,18 @@ async def initialize_chat(request: ChatInitRequest):
             logging.warning(f"Agent '{agent_key}' not found, falling back to guest_faq")
             agent_key = "guest_faq"
 
-        # Step 4: Create new session
+        # Step 4: Create new session and link to Safiranayeha user_id (for user management)
         session_id = uuid.uuid4()
         logging.info(f"Created new session: {session_id}")
+        try:
+            await session_manager.upsert_session(
+                session_id,
+                [],
+                agent_key,
+                metadata={"safiran_user_id": str(user_id)},
+            )
+        except Exception as e:
+            logging.warning(f"Failed to persist session mapping for user_id {user_id}: {e}")
 
         # Step 5: Normalize and save user data to context
         normalized_user_data = {}
@@ -1544,6 +1606,97 @@ async def get_service_logs_stats(
         return await log_svc.get_stats(from_date=from_date, to_date=to_date)
     except ProgrammingError:
         return {"total": 0, "by_type": {}, "by_agent": {}}
+
+
+# =============================================================================
+# User Management API (Safiranayeha users + sessions + context)
+# =============================================================================
+
+@app.get("/monitoring/users", tags=["Monitoring"])
+async def list_users(limit: int = 200):
+    """
+    List users (Safiranayeha user IDs) with session counts and last activity.
+
+    Users are derived from chat_sessions.metadata.safiran_user_id.
+    Returns distinct user IDs with session count and last updated time.
+    """
+    if session_manager is None:
+        return {"users": []}
+    try:
+        sessions = await session_manager.list_sessions(limit=500)
+        by_user: Dict[str, Dict[str, Any]] = {}
+        for s in sessions:
+            uid = (s.get("metadata") or {}).get("safiran_user_id")
+            if not uid:
+                continue
+            uid = str(uid)
+            if uid not in by_user:
+                by_user[uid] = {
+                    "user_id": uid,
+                    "session_count": 0,
+                    "session_ids": [],
+                    "last_activity": s.get("updated_at"),
+                }
+            by_user[uid]["session_count"] += 1
+            by_user[uid]["session_ids"].append(s["session_id"])
+            if s.get("updated_at") and (not by_user[uid]["last_activity"] or (s["updated_at"] or "") > (by_user[uid]["last_activity"] or "")):
+                by_user[uid]["last_activity"] = s["updated_at"]
+        users = sorted(by_user.values(), key=lambda x: (x["last_activity"] or ""), reverse=True)[:limit]
+        return {"users": users, "total": len(users)}
+    except Exception as e:
+        logging.warning(f"List users failed: {e}")
+        return {"users": [], "total": 0}
+
+
+@app.get("/monitoring/users/{user_id}", tags=["Monitoring"])
+async def get_user_detail(user_id: str):
+    """
+    Get full detail for a user: GetAIUserData from Safiranayeha, all sessions,
+    and for each session the chat history and context.
+    """
+    result = {
+        "user_id": user_id,
+        "safiran_user_data": None,
+        "sessions": [],
+    }
+    # Fetch GetAIUserData from Safiranayeha when client is available
+    if safiranayeha_client:
+        try:
+            result["safiran_user_data"] = await safiranayeha_client.get_user_data(user_id)
+        except Exception as e:
+            result["safiran_user_data_error"] = str(e)
+    if session_manager is None:
+        return result
+    try:
+        sessions = await session_manager.list_sessions(limit=500)
+        user_sessions = [s for s in sessions if str((s.get("metadata") or {}).get("safiran_user_id")) == str(user_id)]
+        for s in user_sessions:
+            sid = s["session_id"]
+            try:
+                sid_uuid = uuid.UUID(sid)
+            except ValueError:
+                continue
+            ctx = {}
+            if context_manager:
+                try:
+                    ctx = await context_manager.get_context(sid_uuid) or {}
+                except Exception:
+                    pass
+            result["sessions"].append({
+                "session_id": sid,
+                "agent_type": s.get("agent_type"),
+                "metadata": s.get("metadata"),
+                "created_at": s.get("created_at"),
+                "updated_at": s.get("updated_at"),
+                "message_count": len(s.get("messages") or []),
+                "messages": s.get("messages") or [],
+                "context": ctx,
+            })
+        result["sessions"].sort(key=lambda x: (x.get("updated_at") or ""), reverse=True)
+    except Exception as e:
+        logging.warning(f"Get user detail failed: {e}")
+        result["sessions_error"] = str(e)
+    return result
 
 
 @app.on_event("shutdown")
