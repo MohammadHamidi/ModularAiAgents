@@ -18,9 +18,37 @@
 
         <!-- List view -->
         <div id="list-view" class="flex-1 flex flex-col overflow-hidden">
-            <div class="px-6 py-3 bg-gray-900/50 border-b border-gray-800 flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
-                <span id="list-stats" class="text-sm text-gray-400">Loading users…</span>
-                <div class="flex items-center gap-3 text-sm">
+            <!-- Filters -->
+            <div class="px-6 py-4 bg-gray-900/50 border-b border-gray-800 flex flex-wrap items-end gap-3 flex-shrink-0">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">User ID (search)</label>
+                    <input type="text" id="filter-search" placeholder="Search by user ID…" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 min-w-[180px]">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">From date</label>
+                    <input type="datetime-local" id="filter-from" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">To date</label>
+                    <input type="datetime-local" id="filter-to" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Min sessions</label>
+                    <input type="number" id="filter-min-sessions" min="0" placeholder="Any" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 w-24">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Sort</label>
+                    <select id="filter-sort" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                        <option value="desc">Newest activity first</option>
+                        <option value="asc">Oldest activity first</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <button type="button" id="btn-apply" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium">Apply</button>
+                    <button type="button" id="btn-reset" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-md text-sm font-medium">Reset</button>
+                </div>
+                <div class="ml-auto flex items-center gap-3 text-sm">
+                    <span id="list-stats" class="text-gray-400">—</span>
                     <label class="text-gray-400">Page size</label>
                     <select id="page-size" class="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-gray-200 focus:ring-1 focus:ring-blue-500">
                         <option value="10">10</option>
@@ -98,8 +126,23 @@
             let pageSize = 25;
             let totalUsers = 0;
 
+            function getFilterParams() {
+                const search = document.getElementById('filter-search').value.trim();
+                const from = document.getElementById('filter-from').value;
+                const to = document.getElementById('filter-to').value;
+                const minSessions = document.getElementById('filter-min-sessions').value.trim();
+                const sort = document.getElementById('filter-sort').value;
+                return { search: search || undefined, from_date: from ? from + ':00' : undefined, to_date: to ? to + ':00' : undefined, min_sessions: minSessions ? parseInt(minSessions, 10) : undefined, sort };
+            }
+
             async function fetchUsers(page, limit) {
                 const params = new URLSearchParams({ page: String(page || 1), limit: String(limit || pageSize) });
+                const filters = getFilterParams();
+                if (filters.search) params.set('search', filters.search);
+                if (filters.from_date) params.set('from_date', filters.from_date);
+                if (filters.to_date) params.set('to_date', filters.to_date);
+                if (filters.min_sessions != null && !isNaN(filters.min_sessions)) params.set('min_sessions', String(filters.min_sessions));
+                if (filters.sort) params.set('sort', filters.sort);
                 const res = await fetch('/monitoring/users?' + params.toString());
                 if (!res.ok) throw new Error(res.statusText);
                 return res.json();
@@ -268,6 +311,16 @@
             }
 
             btnBack.addEventListener('click', () => { showList(); loadList(); });
+            document.getElementById('btn-apply').addEventListener('click', () => { currentPage = 1; loadList(1); });
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                document.getElementById('filter-search').value = '';
+                document.getElementById('filter-from').value = '';
+                document.getElementById('filter-to').value = '';
+                document.getElementById('filter-min-sessions').value = '';
+                document.getElementById('filter-sort').value = 'desc';
+                currentPage = 1;
+                loadList(1);
+            });
             document.getElementById('page-size').addEventListener('change', function () {
                 pageSize = parseInt(this.value, 10);
                 currentPage = 1;

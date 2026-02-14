@@ -641,10 +641,27 @@ async def serve_users_view():
 
 
 @app.get("/monitoring/users", tags=["Monitoring"])
-async def list_monitoring_users(page: int = 1, limit: int = 25):
-    """List users (Safiranayeha user IDs) with session counts and last activity. Paginated."""
+async def list_monitoring_users(
+    page: int = 1,
+    limit: int = 25,
+    search: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    min_sessions: Optional[int] = None,
+    sort: str = "desc",
+):
+    """List users with session counts and last activity. Paginated; supports search, date range, min_sessions."""
     try:
-        response = await http_client.get("/monitoring/users", params={"page": page, "limit": limit})
+        params = {"page": page, "limit": limit, "sort": sort}
+        if search is not None:
+            params["search"] = search
+        if from_date is not None:
+            params["from_date"] = from_date
+        if to_date is not None:
+            params["to_date"] = to_date
+        if min_sessions is not None:
+            params["min_sessions"] = min_sessions
+        response = await http_client.get("/monitoring/users", params=params)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:

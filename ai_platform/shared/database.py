@@ -96,5 +96,67 @@ class SessionManager:
             for r in rows
         ]
 
+    async def list_users(
+        self,
+        page: int = 1,
+        limit: int = 25,
+        search: str = None,
+        from_date: str = None,
+        to_date: str = None,
+        min_sessions: int = None,
+        sort: str = "desc",
+    ):
+        """
+        List distinct users (safiran_user_id from metadata) with session count and last activity.
+        Uses DB aggregation so all users are included; supports search, date range, min_sessions.
+        Returns: (list of user dicts, total count).
+        """
+        conditions = ["metadata->>'safiran_user_id' IS NOT NULL AND (metadata->>'safiran_user_id') != ''"]
+        params = {"limit": max(1, min(100, limit)), "offset": (max(1, page) - 1) * max(1, min(100, limit))}
+        if search and search.strip():
+            conditions.append("(metadata->>'safiran_user_id') ILIKE :search")
+            params["search"] = f"%{search.strip()}%"
+        if from_date:
+            conditions.append("updated_at >= :from_date::timestamptz")
+            params["from_date"] = from_date
+        if to_date:
+            conditions.append("updated_at <= :to_date::timestamptz")
+            params["to_date"] = to_date
+        where = " AND ".join(conditions)
+        having = ""
+        if min_sessions is not None and min_sessions >= 0:
+            having = f" HAVING COUNT(*) >= {int(min_sessions)}"
+        order = "DESC" if (sort or "desc").lower() == "desc" else "ASC"
+        base_sql = f"""
+            SELECT metadata->>'safiran_user_id' AS user_id,
+                   COUNT(*) AS session_count,
+                   MAX(updated_at) AS last_activity,
+                   array_agg(session_id::text ORDER BY updated_at DESC) AS session_ids
+            FROM chat_sessions
+            WHERE {where}
+            GROUP BY metadata->>'safiran_user_id'
+            {having}
+        """
+        count_sql = text(f"SELECT COUNT(*) FROM ({base_sql}) AS u")
+        select_sql = text(f"""
+            {base_sql}
+            ORDER BY last_activity {order}
+            LIMIT :limit OFFSET :offset
+        """)
+        count_params = {k: v for k, v in params.items() if k in ("search", "from_date", "to_date")}
+        async with self.engine.begin() as conn:
+            total_row = (await conn.execute(count_sql, count_params)).fetchone()
+            total = total_row[0] if total_row else 0
+            rows = (await conn.execute(select_sql, params)).fetchall()
+        return [
+            {
+                "user_id": str(r[0]),
+                "session_count": r[1],
+                "session_ids": list(r[3]) if r[3] else [],
+                "last_activity": r[2].isoformat() if r[2] else None,
+            }
+            for r in rows
+        ], total
+
     async def dispose(self):
         await self.engine.dispose()
