@@ -18,8 +18,17 @@
 
         <!-- List view -->
         <div id="list-view" class="flex-1 flex flex-col overflow-hidden">
-            <div class="px-6 py-3 bg-gray-900/50 border-b border-gray-800 text-sm text-gray-400 flex-shrink-0">
-                <span id="list-stats">Loading users…</span>
+            <div class="px-6 py-3 bg-gray-900/50 border-b border-gray-800 flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
+                <span id="list-stats" class="text-sm text-gray-400">Loading users…</span>
+                <div class="flex items-center gap-3 text-sm">
+                    <label class="text-gray-400">Page size</label>
+                    <select id="page-size" class="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-gray-200 focus:ring-1 focus:ring-blue-500">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
             </div>
             <div class="flex-1 overflow-auto px-6 py-4">
                 <table class="w-full text-sm border-collapse">
@@ -35,6 +44,16 @@
                         <tr><td colspan="4" class="py-8 text-center text-gray-500">Loading…</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <div class="flex items-center justify-between px-6 py-3 bg-gray-900 border-t border-gray-800 flex-shrink-0">
+                <div class="text-sm text-gray-400">
+                    Page <span id="page-num">1</span> of <span id="page-total">1</span>
+                    (<span id="total-count">0</span> total users)
+                </div>
+                <div class="flex gap-2">
+                    <button type="button" id="btn-prev" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-gray-200">Prev</button>
+                    <button type="button" id="btn-next" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-gray-200">Next</button>
+                </div>
             </div>
         </div>
 
@@ -75,8 +94,13 @@
             const sessionsList = document.getElementById('sessions-list');
             const sessionsError = document.getElementById('sessions-error');
 
-            async function fetchUsers() {
-                const res = await fetch('/monitoring/users?limit=200');
+            let currentPage = 1;
+            let pageSize = 25;
+            let totalUsers = 0;
+
+            async function fetchUsers(page, limit) {
+                const params = new URLSearchParams({ page: String(page || 1), limit: String(limit || pageSize) });
+                const res = await fetch('/monitoring/users?' + params.toString());
                 if (!res.ok) throw new Error(res.statusText);
                 return res.json();
             }
@@ -207,16 +231,33 @@
                 }
             }
 
-            async function loadList() {
+            function updatePagination(data) {
+                const total = data.total || 0;
+                const page = data.page || 1;
+                const limit = data.limit || pageSize;
+                const totalPages = Math.max(1, Math.ceil(total / limit));
+                totalUsers = total;
+                document.getElementById('page-num').textContent = page;
+                document.getElementById('page-total').textContent = totalPages;
+                document.getElementById('total-count').textContent = total;
+                document.getElementById('btn-prev').disabled = page <= 1;
+                document.getElementById('btn-next').disabled = page >= totalPages;
+            }
+
+            async function loadList(page) {
+                const p = page !== undefined ? page : currentPage;
+                currentPage = p;
                 listStats.textContent = 'Loading…';
                 userRows.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-gray-500">Loading…</td></tr>';
                 try {
-                    const data = await fetchUsers();
+                    const data = await fetchUsers(p, pageSize);
                     const users = data.users || [];
-                    listStats.textContent = users.length + ' user(s)';
+                    updatePagination(data);
+                    listStats.textContent = users.length ? `Showing ${users.length} of ${data.total} user(s)` : (data.total ? 'No users on this page.' : 'No users.');
                     userRows.innerHTML = '';
                     if (users.length === 0) {
-                        userRows.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-gray-500">No users with Safiranayeha user ID found. Users appear after chat/init with encrypted_param or user_id.</td></tr>';
+                        userRows.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-gray-500">' +
+                            (data.total ? 'No users on this page.' : 'No users with Safiranayeha user ID found. Users appear after chat/init with encrypted_param or user_id.') + '</td></tr>';
                     } else {
                         users.forEach(u => userRows.appendChild(renderUserRow(u)));
                     }
@@ -227,7 +268,17 @@
             }
 
             btnBack.addEventListener('click', () => { showList(); loadList(); });
-            loadList();
+            document.getElementById('page-size').addEventListener('change', function () {
+                pageSize = parseInt(this.value, 10);
+                currentPage = 1;
+                loadList(1);
+            });
+            document.getElementById('btn-prev').addEventListener('click', () => { if (currentPage > 1) loadList(currentPage - 1); });
+            document.getElementById('btn-next').addEventListener('click', () => {
+                const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize));
+                if (currentPage < totalPages) loadList(currentPage + 1);
+            });
+            loadList(1);
         })();
     </script>
 </body>

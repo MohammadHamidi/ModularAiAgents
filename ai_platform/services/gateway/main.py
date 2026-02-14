@@ -641,10 +641,10 @@ async def serve_users_view():
 
 
 @app.get("/monitoring/users", tags=["Monitoring"])
-async def list_monitoring_users(limit: int = 200):
-    """List users (Safiranayeha user IDs) with session counts and last activity."""
+async def list_monitoring_users(page: int = 1, limit: int = 25):
+    """List users (Safiranayeha user IDs) with session counts and last activity. Paginated."""
     try:
-        response = await http_client.get("/monitoring/users", params={"limit": limit})
+        response = await http_client.get("/monitoring/users", params={"page": page, "limit": limit})
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as e:

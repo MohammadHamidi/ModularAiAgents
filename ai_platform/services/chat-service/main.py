@@ -1613,17 +1613,18 @@ async def get_service_logs_stats(
 # =============================================================================
 
 @app.get("/monitoring/users", tags=["Monitoring"])
-async def list_users(limit: int = 200):
+async def list_users(page: int = 1, limit: int = 25):
     """
     List users (Safiranayeha user IDs) with session counts and last activity.
+    Paginated; includes all users from chat_sessions with safiran_user_id.
 
     Users are derived from chat_sessions.metadata.safiran_user_id.
     Returns distinct user IDs with session count and last updated time.
     """
     if session_manager is None:
-        return {"users": []}
+        return {"users": [], "total": 0, "page": page, "limit": limit}
     try:
-        sessions = await session_manager.list_sessions(limit=500)
+        sessions = await session_manager.list_sessions(limit=10000)
         by_user: Dict[str, Dict[str, Any]] = {}
         for s in sessions:
             uid = (s.get("metadata") or {}).get("safiran_user_id")
@@ -1641,11 +1642,16 @@ async def list_users(limit: int = 200):
             by_user[uid]["session_ids"].append(s["session_id"])
             if s.get("updated_at") and (not by_user[uid]["last_activity"] or (s["updated_at"] or "") > (by_user[uid]["last_activity"] or "")):
                 by_user[uid]["last_activity"] = s["updated_at"]
-        users = sorted(by_user.values(), key=lambda x: (x["last_activity"] or ""), reverse=True)[:limit]
-        return {"users": users, "total": len(users)}
+        all_users = sorted(by_user.values(), key=lambda x: (x["last_activity"] or ""), reverse=True)
+        total = len(all_users)
+        page = max(1, page)
+        limit = max(1, min(100, limit))
+        offset = (page - 1) * limit
+        users = all_users[offset : offset + limit]
+        return {"users": users, "total": total, "page": page, "limit": limit}
     except Exception as e:
         logging.warning(f"List users failed: {e}")
-        return {"users": [], "total": 0}
+        return {"users": [], "total": 0, "page": page, "limit": limit}
 
 
 @app.get("/monitoring/users/{user_id}", tags=["Monitoring"])
