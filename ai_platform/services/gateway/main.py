@@ -58,22 +58,20 @@ http_client = httpx.AsyncClient(base_url=CHAT_SERVICE_URL, timeout=60.0)
 # For local development, try multiple paths
 def find_static_file(filename: str) -> Path:
     """Find static file in Docker or local development paths"""
-    # Try Docker paths: /app/filename (when /app is ai_platform) or /app/ai_platform/filename (when /app is repo root)
+    gateway_dir = Path(__file__).parent
+    # Try gateway's own directory first (file shipped with gateway, works in any deployment)
+    gateway_file = gateway_dir / filename
+    if gateway_file.exists():
+        return gateway_file
+    # Docker: /app/filename or /app/ai_platform/filename
     for docker_path in [Path("/app") / filename, Path("/app") / "ai_platform" / filename]:
         if docker_path.exists():
             return docker_path
-
-    # Try local development paths (relative to gateway service)
-    local_paths = [
-        Path(__file__).parent.parent.parent / filename,  # ai_platform/filename
-        Path(__file__).parent.parent / filename,  # services/filename
-    ]
-    for path in local_paths:
+    # Local: ai_platform/filename, services/filename
+    for path in [gateway_dir.parent.parent / filename, gateway_dir.parent / filename]:
         if path.exists():
             return path
-
-    # Default: first Docker path (may 404 when served)
-    return Path("/app") / filename
+    return gateway_file  # may 404 if not found
 
 CHAT_HTML_PATH = find_static_file("Chat.html")
 ICON_PATH = find_static_file("Icon.png")
