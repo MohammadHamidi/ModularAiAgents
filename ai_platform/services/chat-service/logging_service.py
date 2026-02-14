@@ -49,7 +49,20 @@ class LogService:
         headers_str = json.dumps(request_headers or {}, ensure_ascii=False)
         resp_body_str = (response_body or "")[: self.RESPONSE_BODY_MAX] if response_body else None
 
-        stmt = text("""
+        params = {
+            "log_type": log_type,
+            "session_id": str(session_id) if session_id else None,
+            "agent_key": agent_key,
+            "method": method,
+            "path": path,
+            "status_code": status_code,
+            "request_body": body_str or "null",
+            "response_summary": (response_summary or "")[:2000] if response_summary else None,
+            "metadata": json.dumps(metadata or {}, ensure_ascii=False),
+            "duration_ms": duration_ms,
+        }
+        # Try full schema (with request_headers, response_body) first; fallback to legacy for old DBs
+        stmt_full = text("""
             INSERT INTO service_logs (
                 log_type, session_id, agent_key, method, path,
                 status_code, request_headers, request_body, response_summary, response_body, metadata, duration_ms
@@ -59,25 +72,26 @@ class LogService:
                 :response_summary, :response_body, CAST(:metadata AS jsonb), :duration_ms
             )
         """)
-        params = {
-            "log_type": log_type,
-            "session_id": str(session_id) if session_id else None,
-            "agent_key": agent_key,
-            "method": method,
-            "path": path,
-            "status_code": status_code,
-            "request_headers": headers_str,
-            "request_body": body_str or "null",
-            "response_summary": (response_summary or "")[:2000] if response_summary else None,
-            "response_body": resp_body_str,
-            "metadata": json.dumps(metadata or {}, ensure_ascii=False),
-            "duration_ms": duration_ms,
-        }
+        params_full = {**params, "request_headers": headers_str, "response_body": resp_body_str}
         try:
             async with self.engine.begin() as conn:
-                await conn.execute(stmt, params)
-        except Exception as e:
-            logger.warning(f"Failed to persist log: {e}")
+                await conn.execute(stmt_full, params_full)
+        except Exception as e1:
+            logger.debug("Insert with request_headers/response_body failed, trying legacy schema: %s", e1)
+            stmt_legacy = text("""
+                INSERT INTO service_logs (
+                    log_type, session_id, agent_key, method, path,
+                    status_code, request_body, response_summary, metadata, duration_ms
+                ) VALUES (
+                    :log_type, :session_id, :agent_key, :method, :path,
+                    :status_code, CAST(:request_body AS jsonb), :response_summary, CAST(:metadata AS jsonb), :duration_ms
+                )
+            """)
+            try:
+                async with self.engine.begin() as conn:
+                    await conn.execute(stmt_legacy, params)
+            except Exception as e2:
+                logger.warning(f"Failed to persist log: {e2}")
 
     async def get_logs(
         self,
@@ -114,53 +128,97 @@ class LogService:
             conditions.append("created_at <= :to_date::timestamptz")
             params["to_date"] = to_date
         if search:
-            conditions.append("(request_body::text ILIKE :search OR response_summary ILIKE :search OR response_body ILIKE :search OR metadata::text ILIKE :search)")
             params["search"] = f"%{search}%"
-
+        # Search with response_body only for full schema; legacy search omits response_body
         where_clause = " AND ".join(conditions) if conditions else "1=1"
+        search_condition_full = "(request_body::text ILIKE :search OR response_summary ILIKE :search OR response_body ILIKE :search OR metadata::text ILIKE :search)"
+        search_condition_legacy = "(request_body::text ILIKE :search OR response_summary ILIKE :search OR metadata::text ILIKE :search)"
+        where_with_search_full = f"{where_clause} AND {search_condition_full}" if search else where_clause
+        where_with_search_legacy = f"{where_clause} AND {search_condition_legacy}" if search else where_clause
         order = "DESC" if sort.lower() == "desc" else "ASC"
 
-        count_sql = text(f"SELECT COUNT(*) FROM service_logs WHERE {where_clause}")
-        select_sql = text(f"""
+        count_sql = text(f"SELECT COUNT(*) FROM service_logs WHERE {where_with_search_full}")
+        count_sql_legacy = text(f"SELECT COUNT(*) FROM service_logs WHERE {where_with_search_legacy}")
+        select_sql_full = text(f"""
             SELECT id, created_at, log_type, session_id, agent_key, method, path,
                    status_code, request_headers, request_body, response_summary, response_body, metadata, duration_ms
             FROM service_logs
-            WHERE {where_clause}
+            WHERE {where_with_search_full}
+            ORDER BY created_at {order}
+            LIMIT :limit OFFSET :offset
+        """)
+        select_sql_legacy = text(f"""
+            SELECT id, created_at, log_type, session_id, agent_key, method, path,
+                   status_code, request_body, response_summary, metadata, duration_ms
+            FROM service_logs
+            WHERE {where_with_search_legacy}
             ORDER BY created_at {order}
             LIMIT :limit OFFSET :offset
         """)
 
+        total = 0
+        rows = []
         try:
-            async def _query():
+            async def _query_full():
                 async with self.engine.begin() as conn:
                     total_row = (await conn.execute(count_sql, params)).fetchone()
                     total = total_row[0] if total_row else 0
-                    rows = (await conn.execute(select_sql, params)).fetchall()
-                    return total, rows
-            total, rows = await asyncio.wait_for(_query(), timeout=5.0)
+                    rows_result = (await conn.execute(select_sql_full, params)).fetchall()
+                    return total, rows_result
+            total, rows = await asyncio.wait_for(_query_full(), timeout=5.0)
+            legacy = False
         except (asyncio.TimeoutError, Exception) as e:
-            # If query times out or fails, return empty result
-            logger.warning(f"Log query failed or timed out: {e}")
-            return {"items": [], "total": 0, "page": page, "limit": limit}
+            logger.debug("Log query with full schema failed, trying legacy: %s", e)
+            legacy = True
+            try:
+                async def _query_legacy():
+                    async with self.engine.begin() as conn:
+                        total_row = (await conn.execute(count_sql_legacy, params)).fetchone()
+                        total = total_row[0] if total_row else 0
+                        rows_result = (await conn.execute(select_sql_legacy, params)).fetchall()
+                        return total, rows_result
+                total, rows = await asyncio.wait_for(_query_legacy(), timeout=5.0)
+            except (asyncio.TimeoutError, Exception) as e2:
+                logger.warning(f"Log query failed or timed out: {e2}")
+                return {"items": [], "total": 0, "page": page, "limit": limit}
 
         items = []
         for r in rows:
-            items.append({
-                "id": r[0],
-                "created_at": r[1].isoformat() if r[1] else None,
-                "log_type": r[2],
-                "session_id": str(r[3]) if r[3] else None,
-                "agent_key": r[4],
-                "method": r[5],
-                "path": r[6],
-                "status_code": r[7],
-                "request_headers": r[8],
-                "request_body": r[9],
-                "response_summary": r[10],
-                "response_body": r[11],
-                "metadata": r[12],
-                "duration_ms": r[13],
-            })
+            if legacy:
+                # Legacy: id, created_at, log_type, session_id, agent_key, method, path, status_code, request_body, response_summary, metadata, duration_ms (12 cols)
+                items.append({
+                    "id": r[0],
+                    "created_at": r[1].isoformat() if r[1] else None,
+                    "log_type": r[2],
+                    "session_id": str(r[3]) if r[3] else None,
+                    "agent_key": r[4],
+                    "method": r[5],
+                    "path": r[6],
+                    "status_code": r[7],
+                    "request_headers": None,
+                    "request_body": r[8],
+                    "response_summary": r[9],
+                    "response_body": None,
+                    "metadata": r[10],
+                    "duration_ms": r[11],
+                })
+            else:
+                items.append({
+                    "id": r[0],
+                    "created_at": r[1].isoformat() if r[1] else None,
+                    "log_type": r[2],
+                    "session_id": str(r[3]) if r[3] else None,
+                    "agent_key": r[4],
+                    "method": r[5],
+                    "path": r[6],
+                    "status_code": r[7],
+                    "request_headers": r[8],
+                    "request_body": r[9],
+                    "response_summary": r[10],
+                    "response_body": r[11],
+                    "metadata": r[12],
+                    "duration_ms": r[13],
+                })
 
         return {"items": items, "total": total, "page": page, "limit": limit}
 
