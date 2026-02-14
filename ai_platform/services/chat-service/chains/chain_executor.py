@@ -160,7 +160,7 @@ class ChainExecutor:
             return AgentResponse(
                 session_id=request.session_id or "",
                 output=(
-                    "ببخشید رفیق، مشکلی در سیستم پیش اومده. "
+                    "ببخشید دوست خوبم، مشکلی در سیستم پیش اومده. "
                     "لطفاً دوباره تلاش کن یا با پشتیبانی تماس بگیر. "
                     "من اینجا هستم تا درباره کنش‌های قرآنی و نهضت زندگی با آیه‌ها کمکت کنم."
                 ),
@@ -206,7 +206,7 @@ class ChainExecutor:
             # Return a polite scope refusal message instead of generic error
             # This handles cases where out-of-scope questions cause exceptions
             output = (
-                "ببخشید رفیق، این سوال خارج از حیطه کاری من هست. "
+                "ببخشید دوست خوبم، این سوال خارج از حیطه کاری من هست. "
                 "من اینجا هستم تا درباره کنش‌های قرآنی و نهضت زندگی با آیه‌ها کمکت کنم. "
                 "می‌خوای ببینیم چه کنش‌هایی وجود داره یا چطور می‌تونی شروع کنی؟"
             )

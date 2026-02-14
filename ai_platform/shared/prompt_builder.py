@@ -320,7 +320,7 @@ def build_system_prompt(
         "  * General knowledge questions about history, geography, etc. (unless related to the movement)\n"
         "  * Any question completely unrelated to Quranic actions, content generation, or the Safiranayeha movement\n"
         "- ✅✅✅ If user asks out-of-scope questions:\n"
-        "  * Politely decline: 'ببخشید رفیق، این سوال خارج از حیطه کاری من هست'\n"
+        "  * Politely decline: 'ببخشید دوست خوبم، این سوال خارج از حیطه کاری من هست'\n"
         "  * Redirect naturally to your actual purpose (Quranic actions, content, guidance)\n"
         "  * Suggest how you CAN help them\n"
         "  * ❌ NEVER answer or calculate - even if you know the answer\n"
