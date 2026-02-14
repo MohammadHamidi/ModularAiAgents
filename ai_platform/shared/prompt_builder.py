@@ -75,6 +75,15 @@ def build_system_prompt(
     if complete_prompt:
         parts.append(complete_prompt)
 
+    # Answer completeness: ensure the model uses KB context and answers fully
+    parts.append(
+        "⚠️ ANSWER COMPLETELY:\n"
+        "- Use all relevant information from the Knowledge Base context provided in the user message.\n"
+        "- Cover every part of the user's question or request; do not give overly brief or partial answers.\n"
+        "- If the KB has detailed content, include the useful details in your response in a clear, structured way.\n"
+        "- Stay clear and avoid filler—but completeness comes first."
+    )
+
     # Add few-shot examples from 49 Q&A document (QA format alignment)
     if agent_key:
         try:

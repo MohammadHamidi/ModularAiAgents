@@ -106,13 +106,12 @@ class SpecialistChain:
                 mode="mix",
                 include_references=True,
                 only_need_context=True,
-                top_k=5,  # Reduced from default 10 to 5 for more focused, less noisy context
+                top_k=12,  # Fetch more context so the AI can give complete answers
                 conversation_history=conv if conv else None,
             )
             if result and "[Knowledge Base" in result and "UNAVAILABLE" not in result:
-                # Truncate KB context to prevent exceeding LLM context window
-                # Keep max 4000 chars (~1000 tokens) for KB context to leave room for system prompt and user message
-                max_kb_chars = 4000
+                # Truncate KB context only if very long; allow enough for complete answers
+                max_kb_chars = 10000
                 if len(result) > max_kb_chars:
                     # Truncate but keep the beginning (most relevant) and add indicator
                     truncated = result[:max_kb_chars]
@@ -234,7 +233,7 @@ class SpecialistChain:
         )
 
         # Add KB instruction for chain mode
-        system_prompt += "\n\n[Context from Knowledge Base provided below. Use it to answer in your warm, natural tone. Never mention KB or database.]"
+        system_prompt += "\n\n[Context from Knowledge Base provided below. Use it fully to answer the user's question completely in your warm, natural tone. Never mention KB or database.]"
 
         # Build user prompt
         ctx_block = context_block or ""

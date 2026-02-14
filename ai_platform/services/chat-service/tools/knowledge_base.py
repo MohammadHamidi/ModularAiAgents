@@ -235,9 +235,9 @@ class KnowledgeBaseTool(Tool):
         include_references: bool = True,
         include_chunk_content: bool = True,
         response_type: str = "Multiple Paragraphs",
-        top_k: int = 5,  # Reduced from 10 to 5 for more focused, less noisy retrieval
-        chunk_top_k: int = 8,
-        max_total_tokens: int = 4000,  # Reduced from 6000 to 4000 tokens for context-only queries
+        top_k: int = 12,  # Fetch more chunks so the AI has enough context for complete answers
+        chunk_top_k: int = 12,
+        max_total_tokens: int = 8000,  # Allow larger context for thorough responses
         conversation_history: Optional[List[Dict[str, str]]] = None,
         only_need_context: bool = True,
         only_need_prompt: bool = False
