@@ -54,6 +54,7 @@
                 <!-- Sessions -->
                 <section class="rounded-lg border border-gray-700 overflow-hidden">
                     <div class="px-4 py-2 bg-gray-800 text-gray-200 font-semibold">Sessions</div>
+                    <p class="px-4 py-1 text-xs text-gray-500">Chat history is stored in the DB and appears here when the user sends messages with the same session ID from the chat UI.</p>
                     <div id="sessions-list" class="divide-y divide-gray-800"></div>
                     <div id="sessions-error" class="hidden p-4 text-amber-400 text-sm"></div>
                 </section>
@@ -184,7 +185,10 @@
                             const icon = card.querySelector('.expand-icon');
                             const messagesBlock = card.querySelector('.messages-block');
                             const contextBlock = card.querySelector('.context-block');
-                            messagesBlock.textContent = fmtJson(s.messages);
+                            const msgCount = (s.messages && s.messages.length) || 0;
+                            messagesBlock.textContent = msgCount
+                                ? fmtJson(s.messages)
+                                : '(No messages yet. Chat history is saved when the user sends messages using this session ID from the chat UI.)';
                             contextBlock.textContent = fmtJson(s.context);
                             header.addEventListener('click', () => {
                                 const isOpen = !body.classList.contains('hidden');
