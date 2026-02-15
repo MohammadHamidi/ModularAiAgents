@@ -811,9 +811,6 @@ async def initialize_chat(request: ChatInitRequest):
         # Step 4: Create new session and link to Safiranayeha user_id (for user management)
         # Note: We'll add the welcome message to the session history after generating it
         session_id = uuid.uuid4()
-<<<<<<< Updated upstream
-        logging.info(f"Created new session: {session_id}")
-=======
         logging.info(f"Created new session: {session_id} (user_id={user_id or 'anonymous'})")
         try:
             session_metadata = {
@@ -828,7 +825,6 @@ async def initialize_chat(request: ChatInitRequest):
             )
         except Exception as e:
             logging.warning(f"Failed to persist session mapping for user_id {user_id}: {e}")
->>>>>>> Stashed changes
 
         # Step 5: Normalize and save user data to context
         normalized_user_data = {}
