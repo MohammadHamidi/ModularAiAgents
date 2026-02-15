@@ -740,21 +740,23 @@ async def initialize_chat(request: ChatInitRequest):
         else:
             # Use direct parameters
             user_id = request.user_id
-            path = request.path or '/'
+            # When from_path is provided (e.g. /ai?from=/actions/21), allow init without encrypted_param or user_id
+            path = request.from_path or request.path or '/'
             
-            # Allow missing user_id for public content generator paths
+            # Allow missing user_id for: public content generator paths, or when from_path is set (anonymous action-page visit)
             public_paths = ['/content-generator', '/ai-content']
             is_public_path = any(path.startswith(p) for p in public_paths)
+            has_from_path = bool(request.from_path)
             
-            if not user_id and not is_public_path:
-                raise HTTPException(400, "Either encrypted_param or user_id must be provided")
+            if not user_id and not is_public_path and not has_from_path:
+                raise HTTPException(400, "Either encrypted_param, user_id, or from_path must be provided")
         
         # Step 1.5: Use 'from_path' if provided (indicates which page user came from)
         # This is more specific than the iframe path - it's the actual page user was viewing
         # Example: User on /actions/40 clicks to go to /ai?from=/actions/40
         entry_path = request.from_path if request.from_path else path
         if request.from_path:
-            logging.info(f"User came from page: {request.from_path} (iframe path was: {path})")
+            logging.info(f"User came from page: {request.from_path} (path was: {path})")
 
         # Step 2: Fetch user data from Safiranayeha API (skip for anonymous users)
         if user_id:
@@ -1059,6 +1061,9 @@ async def chat(agent_key: str, request: AgentRequest):
         if request.user_data:
             normalized_user_data = normalize_user_data(request.user_data)
             shared_context.update(normalized_user_data)
+
+        if request.session_id and shared_context:
+            logging.debug(f"Context loaded for session {sid}: keys={list(shared_context.keys())}, has_action_details={'action_details' in shared_context}")
 
     # Process with executor (history + structured shared context)
     request.session_id = str(sid)
@@ -2093,6 +2098,9 @@ async def chat_stream(agent_key: str, request: AgentRequest):
         if request.user_data:
             normalized_user_data = normalize_user_data(request.user_data)
             shared_context.update(normalized_user_data)
+
+        if request.session_id and shared_context:
+            logging.debug(f"Context loaded for stream session {sid}: keys={list(shared_context.keys())}, has_action_details={'action_details' in shared_context}")
     
     request.session_id = str(sid)
     

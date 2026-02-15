@@ -979,24 +979,24 @@
             console.log('Using agent from URL:', urlAgent);
         }
 
-        // Initialize chat from Safiranayeha encrypted parameter
+        // Initialize chat from Safiranayeha encrypted parameter or from_path (e.g. /ai?from=/actions/21)
         async function initializeChatFromSafiranayeha() {
             // If agent was set via URL, skip Safiranayeha init (direct test mode)
             if (urlAgent) return false;
 
+            const urlParams = new URLSearchParams(window.location.search);
+            const fromParam = urlParams.get('from');
             const encryptedParam = getEncryptedParamFromURL();
-            
-            if (!encryptedParam) {
-                // No encrypted parameter - use default behavior
-                console.debug('No Safiranayeha parameter found, using default agent');
+            const fromPathDecoded = fromParam ? decodeURIComponent(fromParam) : null;
+
+            // Call init when we have encrypted_param OR when we have from= (e.g. /ai?from=/actions/21)
+            if (!encryptedParam && !fromPathDecoded) {
+                console.debug('No Safiranayeha parameter or from= path found, using default agent');
                 return false; // Indicates no initialization happened
             }
-            
+
             try {
-                // Store init params for "New chat"
-                const urlParams = new URLSearchParams(window.location.search);
-                const fromParam = urlParams.get('from');
-                safiranInitParams = { encryptedParam, fromPath: fromParam ? decodeURIComponent(fromParam) : null };
+                safiranInitParams = { encryptedParam: encryptedParam || null, fromPath: fromPathDecoded };
 
                 // Show loading state
                 chatContainer.innerHTML = `
@@ -1007,21 +1007,23 @@
                         </div>
                     </div>
                 `;
-                
+
                 // Disable input during initialization
                 messageInput.disabled = true;
                 sendButton.disabled = true;
-                
-                // Call init endpoint
+
+                // Build init body: from_path when present; encrypted_param when present
+                const initBody = {};
+                if (encryptedParam) initBody.encrypted_param = encryptedParam;
+                if (fromPathDecoded) initBody.from_path = fromPathDecoded;
+                if (!encryptedParam && fromPathDecoded) initBody.path = '/';
+
                 const response = await fetch(`${baseUrl}/chat/init`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        encrypted_param: encryptedParam,
-                        from_path: fromParam ? decodeURIComponent(fromParam) : null
-                    })
+                    body: JSON.stringify(initBody)
                 });
                 
                 if (!response.ok) {

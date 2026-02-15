@@ -2,7 +2,11 @@
 Shared system prompt builder for both Pydantic AI and LangChain chain-based executors.
 Ensures consistent context injection (user info, recent messages) across execution modes.
 """
+import json
+import logging
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def get_dynamic_field_instructions(
@@ -207,23 +211,55 @@ def build_system_prompt(
     if user_info:
         action_details_data = user_info.get("action_details")
         if action_details_data:
-            action_details = action_details_data.get("value") if isinstance(action_details_data, dict) else action_details_data
+            # Support value as dict or as JSON string (e.g. from DB)
+            if isinstance(action_details_data, str):
+                try:
+                    action_details_data = json.loads(action_details_data)
+                except (json.JSONDecodeError, TypeError):
+                    action_details_data = None
+            raw_value = action_details_data.get("value") if isinstance(action_details_data, dict) else action_details_data
+            if isinstance(raw_value, str):
+                try:
+                    raw_value = json.loads(raw_value)
+                except (json.JSONDecodeError, TypeError):
+                    raw_value = None
+            action_details = raw_value if isinstance(raw_value, dict) else None
             if isinstance(action_details, dict):
-                # Handle both flat and nested payloads
                 data_obj = action_details.get("data") if isinstance(action_details.get("data"), dict) else action_details
-                title = data_obj.get("title") or data_obj.get("name") or action_details.get("title")
-                desc = data_obj.get("description") or action_details.get("description")
+                # Align with welcome_message_builder: title from top-level then data_obj
+                title = (
+                    action_details.get("title")
+                    or action_details.get("name")
+                    or action_details.get("actionTitle")
+                    or data_obj.get("title")
+                    or data_obj.get("name")
+                )
+                desc = (
+                    action_details.get("description")
+                    or action_details.get("desc")
+                    or data_obj.get("description")
+                    or data_obj.get("desc")
+                )
                 if title:
                     block = f"🧩 جزئیات کنش فعلی کاربر:\n- عنوان: {title}"
                     if desc:
-                        desc_short = desc[:240] + ("..." if len(desc) > 240 else "")
-                        block += f"\n- توضیح: {desc_short}"
+                        desc_str = str(desc)[:240] + ("..." if len(str(desc)) > 240 else "")
+                        block += f"\n- توضیح: {desc_str}"
                     parts.append(block)
-
-                    # Action context instruction
                     parts.append(
                         f"⚠️ زمینه کنش: کاربر در حال دیدن کنش «{title}» است. وقتی می‌گوید «برای این کنش» یا «همین کنش»، همین کنش را مد نظر داشته باش و موضوع را عوض نکن."
                     )
+        # Fallback: user came from action page but we have no title (e.g. API shape unknown)
+        entry_path_data = user_info.get("entry_path")
+        entry_path = None
+        if entry_path_data:
+            entry_path = entry_path_data.get("value") if isinstance(entry_path_data, dict) else entry_path_data
+        if entry_path and isinstance(entry_path, str) and "/actions/" in entry_path:
+            # Only add fallback if we did not already add the action block above
+            if not any("🧩 جزئیات کنش فعلی کاربر" in p for p in parts):
+                parts.append(
+                    f"📍 کاربر از صفحه کنش (مسیر: {entry_path}) به چت آمده. وقتی می‌گوید «این کنش» یا «همین کنش»، همان کنشِ این صفحه را مد نظر داشته باش."
+                )
 
     # User actions summary context from Profile/GetMyActions
     if user_info:
