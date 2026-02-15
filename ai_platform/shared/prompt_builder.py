@@ -128,6 +128,15 @@ def build_system_prompt(
 
         if len(context_lines) > 1:
             parts.append("\n".join(context_lines))
+            # Add first-name hint for personalization when user_full_name exists
+            full_name_data = user_info.get("user_full_name")
+            full_name = full_name_data.get("value") if isinstance(full_name_data, dict) else full_name_data
+            if full_name and isinstance(full_name, str) and full_name.strip():
+                first_name = full_name.strip().split()[0] if full_name.strip().split() else full_name.strip()
+                parts.append(
+                    f"✅ Personalization: When addressing the user, use their first name naturally (e.g. «سلام {first_name}!» or «{first_name} عزیز»). "
+                    "از اطلاعات کاربر (نام، نقش، استان، شهر، مخاطب هدف، کنش‌های انجام‌شده) برای شخصی‌سازی پاسخ‌ها استفاده کن."
+                )
         
         # Always add instruction about user data usage (even if no user info provided)
         parts.append(

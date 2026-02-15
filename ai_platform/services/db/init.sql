@@ -54,3 +54,22 @@ CREATE INDEX IF NOT EXISTS idx_service_logs_session_id ON service_logs(session_i
 CREATE INDEX IF NOT EXISTS idx_service_logs_agent_key ON service_logs(agent_key);
 CREATE INDEX IF NOT EXISTS idx_service_logs_log_type ON service_logs(log_type);
 
+-- Create chat_feedback table for message-level feedback
+CREATE TABLE IF NOT EXISTS chat_feedback (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id VARCHAR(255) NOT NULL,
+    user_id VARCHAR(255),
+    message_id VARCHAR(255) NOT NULL,
+    feedback_type VARCHAR(20) NOT NULL CHECK (feedback_type IN ('like', 'dislike')),
+    reason_codes JSONB,
+    comment TEXT,
+    last_messages JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_session_id ON chat_feedback(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_user_id ON chat_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_message_id ON chat_feedback(message_id);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_created_at ON chat_feedback(created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_feedback_idempotent ON chat_feedback(message_id, COALESCE(user_id, ''));
+

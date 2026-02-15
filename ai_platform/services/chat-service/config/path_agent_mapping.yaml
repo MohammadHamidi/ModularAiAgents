@@ -44,8 +44,8 @@ mappings:
     description: "ثبت گزارش اقدام"
 
   - path: "/actions/*"
-    agent: "action_expert"
-    description: "Actions pages"
+    agent: "konesh_expert"
+    description: "Konesh/action detail pages - کنش از context مشخص است"
 
   - path: "/action-list"
     agent: "action_expert"
@@ -64,12 +64,12 @@ mappings:
     description: "لیست محتواها"
 
   - path: "/konesh/*"
-    agent: "action_expert"
-    description: "Konesh pages (legacy)"
+    agent: "konesh_expert"
+    description: "Konesh pages - کنش از context مشخص است"
 
   - path: "/محفل/*"
-    agent: "action_expert"
-    description: "Mahfel pages"
+    agent: "konesh_expert"
+    description: "Mahfel pages - کنش از context مشخص است"
 
   - path: "/content/create"
     agent: "content_generation_expert"

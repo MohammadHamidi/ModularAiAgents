@@ -15,8 +15,9 @@ from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import text, bindparam
+from sqlalchemy.exc import ProgrammingError, IntegrityError
+from sqlalchemy.dialects.postgresql import JSONB
 
 from shared.database import SessionManager
 from shared.context_manager import ContextManager
@@ -33,6 +34,7 @@ from tools.calculator import CalculatorTool
 from tools.weather import WeatherTool
 from tools.web_search import WebSearchTool, GetCompanyInfoTool
 from tools.konesh_query import KoneshQueryTool
+from tools.local_knowledge import LocalKnowledgeTool
 from tools.safiran_content import SafiranContentTool
 from tools.safiran_action import SafiranActionTool
 
@@ -297,7 +299,8 @@ PERSONA_TOOL_NAMES = {
     "orchestrator": ["route_to_agent"],
     "guest_faq": ["knowledge_base_query"],
     "action_expert": ["query_konesh", "knowledge_base_query", "query_safiran_actions"],
-    "content_generation_expert": ["query_konesh", "knowledge_base_query", "query_safiran_content"],
+    "content_generation_expert": ["query_konesh", "query_local_knowledge", "knowledge_base_query", "query_safiran_content"],
+    "konesh_expert": ["query_konesh", "query_local_knowledge", "knowledge_base_query"],
     "journey_register": ["query_konesh", "knowledge_base_query"],
     "rewards_invite": ["knowledge_base_query"],
 }
@@ -394,6 +397,7 @@ async def startup():
     ToolRegistry.register_tool(WebSearchTool())
     ToolRegistry.register_tool(GetCompanyInfoTool())
     ToolRegistry.register_tool(KoneshQueryTool())
+    ToolRegistry.register_tool(LocalKnowledgeTool())
     ToolRegistry.register_tool(SafiranContentTool())
     ToolRegistry.register_tool(SafiranActionTool())
     
@@ -410,6 +414,7 @@ async def startup():
         "guest_faq": "personalities/guest_faq.yaml",
         "action_expert": "personalities/action_expert.yaml",
         "content_generation_expert": "personalities/content_generation_expert.yaml",
+        "konesh_expert": "personalities/konesh_expert.yaml",
         "journey_register": "personalities/journey_register.yaml",
         "rewards_invite": "personalities/rewards_invite.yaml",
     }
@@ -459,6 +464,7 @@ async def startup():
     from chains.chain_executor import ChainExecutor
     kb_tool = ToolRegistry.get_tool("knowledge_base_query")
     konesh_tool = ToolRegistry.get_tool("query_konesh")
+    local_knowledge_tool = ToolRegistry.get_tool("query_local_knowledge")
     safiran_content_tool = ToolRegistry.get_tool("query_safiran_content")
     safiran_action_tool = ToolRegistry.get_tool("query_safiran_actions")
     if kb_tool and AGENT_CONFIGS:
@@ -466,6 +472,7 @@ async def startup():
             agent_configs=AGENT_CONFIGS,
             kb_tool=kb_tool,
             konesh_tool=konesh_tool,
+            local_knowledge_tool=local_knowledge_tool,
             safiran_content_tool=safiran_content_tool,
             safiran_action_tool=safiran_action_tool,
             log_service=log_service,
@@ -1070,6 +1077,17 @@ async def chat(agent_key: str, request: AgentRequest):
     # Save session (agent should return updated history in metadata)
     new_history = response.metadata.get("history", messages)
     save_metadata = {**updated_metadata, "last_agent": agent_key}
+    # Set session title on first user message (do not overwrite if already set)
+    if "session_title" not in save_metadata and new_history:
+        first_user_msg = None
+        for m in (new_history if isinstance(new_history, list) else []):
+            if isinstance(m, dict) and m.get("role") == "user":
+                first_user_msg = (m.get("content") or "").strip()
+                break
+        if first_user_msg:
+            save_metadata["session_title"] = (first_user_msg[:50] + "…") if len(first_user_msg) > 50 else first_user_msg
+        else:
+            save_metadata["session_title"] = "گفتگوی جدید"
     try:
         await session_manager.upsert_session(
             sid,
@@ -1109,6 +1127,67 @@ async def get_session_context(session_id: str):
     
     context = await context_manager.get_context(sid)
     return {"session_id": session_id, "context": context or {}}
+
+
+@app.get("/session/{session_id}/history", tags=["Sessions"])
+async def get_session_history(session_id: str):
+    """
+    Get session messages and metadata for rendering conversation history.
+    Used by Chat.html when user selects a session from the sidebar.
+    """
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid session_id")
+
+    session = await session_manager.get_session(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    messages = session.get("messages") or []
+    # Backfill message_id for old messages
+    for idx, m in enumerate(messages):
+        if isinstance(m, dict) and "message_id" not in m:
+            m = dict(m)
+            m["message_id"] = f"{session_id}-{idx}"
+            messages[idx] = m
+
+    return {
+        "session_id": session_id,
+        "messages": messages,
+        "agent_type": session.get("agent_type") or "orchestrator",
+        "metadata": session.get("metadata") or {},
+    }
+
+
+@app.get("/user/sessions", tags=["Sessions"])
+async def list_user_sessions(session_id: Optional[str] = None):
+    """
+    List all sessions for the user who owns the given session.
+    Requires session_id from a session created via chat/init (has safiran_user_id).
+    Returns empty list for guests or invalid session.
+    """
+    if not session_id:
+        return {"sessions": []}
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        return {"sessions": []}
+
+    session = await session_manager.get_session(sid)
+    if not session:
+        return {"sessions": []}
+
+    user_id = (session.get("metadata") or {}).get("safiran_user_id")
+    if not user_id:
+        return {"sessions": []}
+
+    try:
+        sessions = await session_manager.list_sessions_for_user(str(user_id), limit=50)
+        return {"sessions": sessions}
+    except Exception as e:
+        logging.warning(f"List user sessions failed: {e}")
+        return {"sessions": []}
 
 
 @app.get("/session/{session_id}/user-data", tags=["Sessions"])
@@ -1449,6 +1528,218 @@ async def export_config():
         "context_display": agent_full_config.context_display,
         "model_config": agent_full_config.model_config,
     }
+
+
+def _feedback_enabled() -> bool:
+    """Check if chat feedback feature is enabled (default: True)."""
+    v = os.getenv("CHAT_FEEDBACK_ENABLED", "true").lower()
+    return v in ("true", "1", "yes")
+
+
+@app.get("/config", tags=["Config"])
+async def get_config():
+    """Get feature flags and config (e.g. for Chat.html)."""
+    return {"feedback_enabled": _feedback_enabled()}
+
+
+# =============================================================================
+# Chat Feedback API (optional, controlled by CHAT_FEEDBACK_ENABLED)
+# =============================================================================
+
+class FeedbackLastMessage(BaseModel):
+    role: str
+    content: str
+    message_id: Optional[str] = None
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    user_id: Optional[str] = None
+    message_id: str
+    feedback_type: str  # like | dislike
+    reason_codes: Optional[List[str]] = None
+    comment: Optional[str] = None
+    last_messages: Optional[List[Dict[str, Any]]] = None
+    timestamp: Optional[str] = None
+
+
+@app.post("/api/v1/chat/feedback", tags=["Feedback"])
+async def submit_feedback(req: FeedbackRequest):
+    """
+    Submit message-level feedback (like/dislike).
+    Idempotent per message + user.
+    """
+    if not _feedback_enabled():
+        raise HTTPException(404, "Feedback feature is disabled")
+    if req.feedback_type not in ("like", "dislike"):
+        raise HTTPException(400, "feedback_type must be like or dislike")
+    if req.feedback_type == "like":
+        if req.reason_codes is not None or req.comment is not None:
+            raise HTTPException(400, "Like feedback must not include reason_codes or comment")
+        req.reason_codes = None
+        req.comment = None
+    last_messages = req.last_messages[:2] if req.last_messages else []
+    try:
+        engine = context_manager.engine
+        stmt = text("""
+            INSERT INTO chat_feedback (session_id, user_id, message_id, feedback_type, reason_codes, comment, last_messages)
+            VALUES (:session_id, :user_id, :message_id, :feedback_type, :reason_codes, :comment, :last_messages)
+        """).bindparams(
+            bindparam("reason_codes", type_=JSONB),
+            bindparam("last_messages", type_=JSONB),
+        )
+        async with engine.begin() as conn:
+            await conn.execute(stmt, {
+                "session_id": req.session_id,
+                "user_id": req.user_id if req.user_id else None,
+                "message_id": req.message_id,
+                "feedback_type": req.feedback_type,
+                "reason_codes": json.dumps(req.reason_codes) if req.reason_codes else None,
+                "comment": req.comment,
+                "last_messages": json.dumps(last_messages) if last_messages else None,
+            })
+    except IntegrityError:
+        pass
+    except Exception as e:
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            pass
+        else:
+            logging.warning(f"Feedback insert failed: {e}")
+            raise HTTPException(500, "Failed to save feedback")
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/chat/feedback", tags=["Feedback"])
+async def list_feedback(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    feedback_type: Optional[str] = None,
+    reason: Optional[str] = None,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50,
+    sort: str = "desc",
+):
+    """List feedback with filters (admin)."""
+    if not _feedback_enabled():
+        raise HTTPException(404, "Feedback feature is disabled")
+    conditions = ["1=1"]
+    params = {"limit": min(100, max(1, limit)), "offset": (max(1, page) - 1) * min(100, max(1, limit))}
+    if from_date:
+        conditions.append("created_at >= :from_date::timestamptz")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("created_at <= :to_date::timestamptz")
+        params["to_date"] = to_date
+    if feedback_type:
+        conditions.append("feedback_type = :feedback_type")
+        params["feedback_type"] = feedback_type
+    if reason:
+        conditions.append("reason_codes @> :reason::jsonb")
+        params["reason"] = json.dumps([reason])
+    if user_id:
+        conditions.append("user_id = :user_id")
+        params["user_id"] = user_id
+    if session_id:
+        conditions.append("session_id = :session_id")
+        params["session_id"] = session_id
+    where = " AND ".join(conditions)
+    order = "DESC" if sort == "desc" else "ASC"
+    count_params = {k: v for k, v in params.items() if k in ("from_date", "to_date", "feedback_type", "reason", "user_id", "session_id")}
+    engine = context_manager.engine
+    async with engine.begin() as conn:
+        count_row = (await conn.execute(
+            text(f"SELECT COUNT(*) FROM chat_feedback WHERE {where}"),
+            count_params
+        )).fetchone()
+        total = count_row[0] if count_row else 0
+        rows = (await conn.execute(
+            text(f"""
+                SELECT id, session_id, user_id, message_id, feedback_type, reason_codes, comment, last_messages, created_at
+                FROM chat_feedback WHERE {where}
+                ORDER BY created_at {order}
+                LIMIT :limit OFFSET :offset
+            """),
+            params
+        )).fetchall()
+    items = [
+        {
+            "id": str(r[0]),
+            "session_id": r[1],
+            "user_id": r[2],
+            "message_id": r[3],
+            "feedback_type": r[4],
+            "reason_codes": r[5],
+            "comment": r[6],
+            "last_messages": r[7],
+            "created_at": r[8].isoformat() if r[8] else None,
+        }
+        for r in rows
+    ]
+    return {"items": items, "total": total, "page": page, "limit": limit}
+
+
+@app.get("/api/v1/chat/feedback/export", tags=["Feedback"])
+async def export_feedback(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    feedback_type: Optional[str] = None,
+    reason: Optional[str] = None,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+):
+    """Export feedback as CSV (UTF-8 with BOM for Excel Farsi)."""
+    if not _feedback_enabled():
+        raise HTTPException(404, "Feedback feature is disabled")
+    conditions = ["1=1"]
+    params = {}
+    if from_date:
+        conditions.append("created_at >= :from_date::timestamptz")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("created_at <= :to_date::timestamptz")
+        params["to_date"] = to_date
+    if feedback_type:
+        conditions.append("feedback_type = :feedback_type")
+        params["feedback_type"] = feedback_type
+    if reason:
+        conditions.append("reason_codes @> :reason::jsonb")
+        params["reason"] = json.dumps([reason])
+    if user_id:
+        conditions.append("user_id = :user_id")
+        params["user_id"] = user_id
+    if session_id:
+        conditions.append("session_id = :session_id")
+        params["session_id"] = session_id
+    where = " AND ".join(conditions)
+
+    async def stream_csv():
+        yield "\ufeff"
+        yield "id,created_at,user_id,session_id,message_id,feedback_type,reason_codes,comment,last_messages\n"
+        engine = context_manager.engine
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                text(f"""
+                    SELECT id, created_at, user_id, session_id, message_id, feedback_type, reason_codes, comment, last_messages
+                    FROM chat_feedback WHERE {where}
+                    ORDER BY created_at DESC
+                """),
+                params
+            )
+            for r in result.fetchall():
+                def esc(s):
+                    if s is None: return ""
+                    t = str(s).replace('"', '""')
+                    return f'"{t}"'
+                rc = json.dumps(r[6]) if r[6] else ""
+                lm = json.dumps(r[8]) if r[8] else ""
+                yield f"{r[0]},{esc(r[1].isoformat() if r[1] else '')},{esc(r[2])},{esc(r[3])},{esc(r[4])},{esc(r[5])},{esc(rc)},{esc(r[7])},{esc(lm)}\n"
+
+    return StreamingResponse(
+        stream_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=chat_feedback.csv"}
+    )
 
 
 # =============================================================================
@@ -1823,14 +2114,29 @@ async def chat_stream(agent_key: str, request: AgentRequest):
                 await asyncio.sleep(0.01)  # Small delay for smooth streaming (10ms per word)
             
             logging.info("✅ Finished streaming all chunks, sending done signal")
-            # Send done signal
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            # Send done signal with message_id for feedback
+            assistant_msg_id = None
+            if response:
+                hist = response.metadata.get("history") or []
+                if hist and isinstance(hist[-1], dict):
+                    assistant_msg_id = hist[-1].get("message_id")
+            yield f"data: {json.dumps({'done': True, 'message_id': assistant_msg_id})}\n\n"
             
             # Save session and context (same as regular endpoint)
             if response:
                 try:
                     new_history = response.metadata.get("history", messages)
                     save_metadata = {**updated_metadata, "last_agent": agent_key}
+                    if "session_title" not in save_metadata and new_history:
+                        first_user_msg = None
+                        for m in (new_history if isinstance(new_history, list) else []):
+                            if isinstance(m, dict) and m.get("role") == "user":
+                                first_user_msg = (m.get("content") or "").strip()
+                                break
+                        if first_user_msg:
+                            save_metadata["session_title"] = (first_user_msg[:50] + "…") if len(first_user_msg) > 50 else first_user_msg
+                        else:
+                            save_metadata["session_title"] = "گفتگوی جدید"
                     await session_manager.upsert_session(
                         sid,
                         new_history,

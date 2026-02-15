@@ -71,6 +71,7 @@ class ChainExecutor:
         agent_configs: Dict[str, Any],
         kb_tool: Any,
         konesh_tool: Optional[Any] = None,
+        local_knowledge_tool: Optional[Any] = None,
         safiran_content_tool: Optional[Any] = None,
         safiran_action_tool: Optional[Any] = None,
         log_service: Optional[Any] = None,
@@ -80,6 +81,7 @@ class ChainExecutor:
             agent_configs: {agent_key: AgentConfig} e.g. from AGENT_CONFIGS
             kb_tool: KnowledgeBaseTool instance
             konesh_tool: Optional KoneshQueryTool
+            local_knowledge_tool: Optional LocalKnowledgeTool for verses/angareh/konesh type
             safiran_content_tool: Optional Safiran content tool
             safiran_action_tool: Optional Safiran action tool
             log_service: Optional LogService for persisting traces
@@ -87,6 +89,7 @@ class ChainExecutor:
         self.agent_configs = agent_configs
         self.kb_tool = kb_tool
         self.konesh_tool = konesh_tool
+        self.local_knowledge_tool = local_knowledge_tool
         self.safiran_content_tool = safiran_content_tool
         self.safiran_action_tool = safiran_action_tool
         self.log_service = log_service
@@ -100,8 +103,9 @@ class ChainExecutor:
         config = self.agent_configs.get(agent_key)
         if not config:
             return None
-        # Both action_expert and content_generation_expert use konesh_tool
-        konesh = self.konesh_tool if agent_key in ("action_expert", "content_generation_expert") else None
+        # action_expert, content_generation_expert, konesh_expert use konesh_tool
+        konesh = self.konesh_tool if agent_key in ("action_expert", "content_generation_expert", "konesh_expert") else None
+        local_knowledge = self.local_knowledge_tool if agent_key in ("content_generation_expert", "konesh_expert") else None
         safiran_content = self.safiran_content_tool if agent_key == "content_generation_expert" else None
         safiran_action = self.safiran_action_tool if agent_key == "action_expert" else None
         chain = SpecialistChain(
@@ -109,6 +113,7 @@ class ChainExecutor:
             agent_config=config,
             kb_tool=self.kb_tool,
             konesh_tool=konesh,
+            local_knowledge_tool=local_knowledge,
             safiran_content_tool=safiran_content,
             safiran_action_tool=safiran_action,
         )
@@ -279,18 +284,22 @@ class ChainExecutor:
                 import logging
                 logging.getLogger(__name__).warning(f"Log service append failed: {e}")
 
-        # Build updated history
+        # Build updated history (with message_id for feedback)
         now = datetime.datetime.utcnow().isoformat()
+        user_msg_id = str(uuid.uuid4())
+        assistant_msg_id = str(uuid.uuid4())
         updated_history = list(history)
         updated_history.append({
             "role": "user",
             "content": request.message,
             "timestamp": now,
+            "message_id": user_msg_id,
         })
         updated_history.append({
             "role": "assistant",
             "content": output,
             "timestamp": now,
+            "message_id": assistant_msg_id,
         })
 
         model = getattr(config, "model_config", {}) or {}

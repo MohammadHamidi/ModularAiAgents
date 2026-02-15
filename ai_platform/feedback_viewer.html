@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Feedback Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans antialiased">
+    <div class="flex flex-col h-screen overflow-hidden">
+        <!-- Header -->
+        <header class="flex items-center justify-between px-6 py-4 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+            <h1 class="text-xl font-semibold tracking-tight">Chat Feedback</h1>
+            <a href="/monitoring/dashboard" class="text-sm text-blue-400 hover:text-blue-300">← Trace Dashboard</a>
+        </header>
+
+        <!-- Filter bar -->
+        <div class="px-6 py-4 bg-gray-900/50 border-b border-gray-800 space-y-3 flex-shrink-0">
+            <div class="flex flex-wrap gap-3 items-end">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Feedback type</label>
+                    <select id="filter-type" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[120px]">
+                        <option value="">All</option>
+                        <option value="like">Like</option>
+                        <option value="dislike">Dislike</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Reason</label>
+                    <select id="filter-reason" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[160px]">
+                        <option value="">All</option>
+                        <option value="incorrect">incorrect</option>
+                        <option value="not_requested">not_requested</option>
+                        <option value="slow_or_buggy">slow_or_buggy</option>
+                        <option value="tone_or_style">tone_or_style</option>
+                        <option value="security_legal">security_legal</option>
+                        <option value="other">other</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">User ID</label>
+                    <input type="text" id="filter-user" placeholder="User ID..." class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[140px]">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Session ID</label>
+                    <input type="text" id="filter-session" placeholder="UUID..." class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">From date</label>
+                    <input type="datetime-local" id="filter-from" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">To date</label>
+                    <input type="datetime-local" id="filter-to" class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-200 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex gap-2">
+                    <button id="btn-apply" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition">Apply</button>
+                    <button id="btn-reset" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-md text-sm font-medium transition">Reset</button>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-400">Sort</label>
+                    <select id="sort-order" class="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                        <option value="desc">Newest first</option>
+                        <option value="asc">Oldest first</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-xs text-gray-400">Page size</label>
+                    <select id="page-size" class="px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-200 focus:ring-1 focus:ring-blue-500">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+                <button id="btn-export" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-sm font-medium transition">Export CSV</button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats-bar" class="px-6 py-2 bg-gray-900/30 border-b border-gray-800 text-sm text-gray-400 flex-shrink-0">
+            <span id="stats-text">—</span>
+        </div>
+
+        <!-- Table -->
+        <div class="flex-1 overflow-auto px-6 py-4">
+            <table class="w-full text-sm border-collapse">
+                <thead class="sticky top-0 bg-gray-900 z-10">
+                    <tr class="text-left text-gray-400 border-b border-gray-700">
+                        <th class="pb-2 pr-4 font-medium">Date</th>
+                        <th class="pb-2 pr-4 font-medium">User ID</th>
+                        <th class="pb-2 pr-4 font-medium">Session ID</th>
+                        <th class="pb-2 pr-4 font-medium">Type</th>
+                        <th class="pb-2 pr-4 font-medium">Reasons</th>
+                        <th class="pb-2 pr-4 font-medium">Comment</th>
+                        <th class="pb-2 font-medium w-24"></th>
+                    </tr>
+                </thead>
+                <tbody id="feedback-rows">
+                    <tr><td colspan="7" class="py-8 text-center text-gray-500">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="flex items-center justify-between px-6 py-3 bg-gray-900 border-t border-gray-800 flex-shrink-0">
+            <div class="text-sm text-gray-400">
+                Page <span id="page-num">1</span> of <span id="page-total">1</span>
+                (<span id="total-count">0</span> total)
+            </div>
+            <div class="flex gap-2">
+                <button id="btn-prev" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-gray-200">Prev</button>
+                <button id="btn-next" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-gray-200">Next</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conversation modal -->
+    <div id="conversation-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/60" id="modal-backdrop"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-gray-900 border border-gray-700 rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+                <div class="px-4 py-3 border-b border-gray-700 flex justify-between items-center">
+                    <h3 class="text-lg font-semibold text-gray-100">View Conversation</h3>
+                    <button type="button" id="modal-close" class="text-gray-400 hover:text-gray-200 text-xl">&times;</button>
+                </div>
+                <div id="modal-content" class="flex-1 overflow-auto p-4 text-sm space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const tbody = document.getElementById('feedback-rows');
+            const statsText = document.getElementById('stats-text');
+            const pageNum = document.getElementById('page-num');
+            const pageTotal = document.getElementById('page-total');
+            const totalCount = document.getElementById('total-count');
+            let currentPage = 1;
+            let total = 0;
+            let lastParams = {};
+
+            const REASON_LABELS = {
+                incorrect: 'نادرست یا ناقص',
+                not_requested: 'مطابق درخواست نبود',
+                slow_or_buggy: 'کند یا دارای باگ',
+                tone_or_style: 'لحن یا نگارش نامناسب',
+                security_legal: 'نگرانی امنیتی یا قانونی',
+                other: 'سایر'
+            };
+
+            function buildParams() {
+                const type = document.getElementById('filter-type').value;
+                const reason = document.getElementById('filter-reason').value;
+                const userId = document.getElementById('filter-user').value.trim();
+                const sessionId = document.getElementById('filter-session').value.trim();
+                const from = document.getElementById('filter-from').value;
+                const to = document.getElementById('filter-to').value;
+                const sort = document.getElementById('sort-order').value;
+                const limit = parseInt(document.getElementById('page-size').value, 10);
+
+                const params = new URLSearchParams();
+                params.set('page', String(currentPage));
+                params.set('limit', String(limit));
+                params.set('sort', sort);
+                if (type) params.set('feedback_type', type);
+                if (reason) params.set('reason', reason);
+                if (userId) params.set('user_id', userId);
+                if (sessionId) params.set('session_id', sessionId);
+                if (from) params.set('from_date', from + ':00');
+                if (to) params.set('to_date', to + ':00');
+                return params;
+            }
+
+            async function fetchFeedback() {
+                const params = buildParams();
+                lastParams = Object.fromEntries(params);
+                try {
+                    const res = await fetch('/api/v1/chat/feedback?' + params.toString());
+                    if (!res.ok) throw new Error(res.statusText);
+                    return await res.json();
+                } catch (e) {
+                    console.error(e);
+                    return { items: [], total: 0, page: 1, limit: 25 };
+                }
+            }
+
+            function truncate(str, len) {
+                if (!str || typeof str !== 'string') return '—';
+                return str.length <= len ? str : str.slice(0, len) + '…';
+            }
+
+            function formatReasons(rc) {
+                if (!rc || !Array.isArray(rc)) return '—';
+                return rc.map(r => REASON_LABELS[r] || r).join(', ');
+            }
+
+            function renderRow(item, index) {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-gray-800 hover:bg-gray-800/50';
+                tr.dataset.index = index;
+                const time = item.created_at ? new Date(item.created_at).toLocaleString() : '—';
+                const sessionShort = item.session_id ? (item.session_id.slice(0, 8) + '…') : '—';
+                const userIdShort = item.user_id ? (String(item.user_id).slice(0, 12) + (String(item.user_id).length > 12 ? '…' : '')) : '(anonymous)';
+                const typeSpan = item.feedback_type === 'like'
+                    ? '<span class="px-1.5 py-0.5 rounded text-xs bg-emerald-900/50 text-emerald-300">like</span>'
+                    : '<span class="px-1.5 py-0.5 rounded text-xs bg-red-900/50 text-red-300">dislike</span>';
+                const reasons = formatReasons(item.reason_codes);
+                const commentPreview = truncate(item.comment, 40);
+                const hasFullComment = item.comment && item.comment.length > 40;
+                tr.innerHTML = `
+                    <td class="py-2 pr-4 text-gray-400 whitespace-nowrap">${time}</td>
+                    <td class="py-2 pr-4 text-gray-300 font-mono text-xs" title="${item.user_id || ''}">${userIdShort}</td>
+                    <td class="py-2 pr-4 text-gray-400 font-mono text-xs" title="${item.session_id || ''}">${sessionShort}</td>
+                    <td class="py-2 pr-4">${typeSpan}</td>
+                    <td class="py-2 pr-4 text-gray-300 max-w-[140px] truncate" title="${reasons}">${reasons || '—'}</td>
+                    <td class="py-2 pr-4 text-gray-300 max-w-[180px]" title="${item.comment || ''}">
+                        <span class="comment-preview">${commentPreview || '—'}</span>
+                        ${hasFullComment ? '<button type="button" class="ml-1 text-blue-400 hover:text-blue-300 text-xs expand-comment">more</button>' : ''}
+                    </td>
+                    <td class="py-2">
+                        <button type="button" class="view-conv-btn px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-200">View</button>
+                    </td>
+                `;
+                tr._item = item;
+                return tr;
+            }
+
+            function showConversationModal(item) {
+                const content = document.getElementById('modal-content');
+                const lastMessages = item.last_messages || [];
+                let html = `
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Metadata</div>
+                        <pre class="p-2 text-gray-300 text-xs whitespace-pre-wrap break-words">ID: ${item.id || '—'}
+Message ID: ${item.message_id || '—'}
+Session: ${item.session_id || '—'}
+User: ${item.user_id || '(anonymous)'}
+Type: ${item.feedback_type || '—'}
+Reasons: ${formatReasons(item.reason_codes) || '—'}
+Comment: ${item.comment || '(none)'}</pre>
+                    </section>
+                    <section class="rounded border border-gray-700 overflow-hidden">
+                        <div class="px-2 py-1 bg-gray-800 text-gray-400 font-semibold">Last Messages</div>
+                        <div class="p-2 space-y-2">
+                `;
+                if (lastMessages.length === 0) {
+                    html += '<p class="text-gray-500 text-sm">No messages captured.</p>';
+                } else {
+                    lastMessages.forEach(m => {
+                        const role = m.role || 'unknown';
+                        const contentText = (m.content || '').slice(0, 500) + ((m.content || '').length > 500 ? '…' : '');
+                        html += `
+                            <div class="rounded border border-gray-700 p-2 bg-gray-800/50">
+                                <span class="text-xs font-semibold ${role === 'user' ? 'text-blue-400' : 'text-emerald-400'}">${role}</span>
+                                ${m.message_id ? `<span class="text-xs text-gray-500 ml-2">${m.message_id}</span>` : ''}
+                                <pre class="mt-1 text-gray-300 whitespace-pre-wrap break-words text-xs">${contentText}</pre>
+                            </div>
+                        `;
+                    });
+                }
+                html += '</div></section>';
+                content.innerHTML = html;
+                document.getElementById('conversation-modal').classList.remove('hidden');
+            }
+
+            function closeModal() {
+                document.getElementById('conversation-modal').classList.add('hidden');
+            }
+
+            document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+            document.getElementById('modal-close').addEventListener('click', closeModal);
+
+            async function load() {
+                tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-gray-500">Loading…</td></tr>';
+                const data = await fetchFeedback();
+                total = data.total;
+                const totalPages = Math.max(1, Math.ceil(total / (data.limit || 25)));
+                currentPage = data.page;
+
+                pageNum.textContent = currentPage;
+                pageTotal.textContent = totalPages;
+                totalCount.textContent = total;
+
+                document.getElementById('btn-prev').disabled = currentPage <= 1;
+                document.getElementById('btn-next').disabled = currentPage >= totalPages;
+
+                statsText.textContent = `Total: ${total} feedback entries`;
+
+                tbody.innerHTML = '';
+                if (!data.items || data.items.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-gray-500">No feedback found.</td></tr>';
+                } else {
+                    data.items.forEach((item, i) => {
+                        const tr = renderRow(item, i);
+                        tr.querySelector('.view-conv-btn')?.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            showConversationModal(tr._item);
+                        });
+                        tr.querySelector('.expand-comment')?.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const prev = tr.querySelector('.comment-preview');
+                            if (prev && tr._item.comment) {
+                                prev.textContent = tr._item.comment;
+                                e.target.remove();
+                            }
+                        });
+                        tbody.appendChild(tr);
+                    });
+                }
+            }
+
+            document.getElementById('btn-apply').addEventListener('click', () => { currentPage = 1; load(); });
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                document.getElementById('filter-type').value = '';
+                document.getElementById('filter-reason').value = '';
+                document.getElementById('filter-user').value = '';
+                document.getElementById('filter-session').value = '';
+                document.getElementById('filter-from').value = '';
+                document.getElementById('filter-to').value = '';
+                document.getElementById('sort-order').value = 'desc';
+                document.getElementById('page-size').value = '25';
+                currentPage = 1;
+                load();
+            });
+            document.getElementById('sort-order').addEventListener('change', () => { currentPage = 1; load(); });
+            document.getElementById('page-size').addEventListener('change', () => { currentPage = 1; load(); });
+            document.getElementById('btn-prev').addEventListener('click', () => { if (currentPage > 1) { currentPage--; load(); } });
+            document.getElementById('btn-next').addEventListener('click', () => { currentPage++; load(); });
+
+            document.getElementById('btn-export').addEventListener('click', async () => {
+                const params = new URLSearchParams();
+                const from = document.getElementById('filter-from').value;
+                const to = document.getElementById('filter-to').value;
+                const type = document.getElementById('filter-type').value;
+                const reason = document.getElementById('filter-reason').value;
+                const userId = document.getElementById('filter-user').value.trim();
+                const sessionId = document.getElementById('filter-session').value.trim();
+                if (from) params.set('from_date', from + ':00');
+                if (to) params.set('to_date', to + ':00');
+                if (type) params.set('feedback_type', type);
+                if (reason) params.set('reason', reason);
+                if (userId) params.set('user_id', userId);
+                if (sessionId) params.set('session_id', sessionId);
+                try {
+                    const res = await fetch('/api/v1/chat/feedback/export?' + params.toString());
+                    if (!res.ok) throw new Error(res.statusText);
+                    const blob = await res.blob();
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'chat_feedback_' + new Date().toISOString().slice(0, 10) + '.csv';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                } catch (e) {
+                    console.error(e);
+                    alert('Export failed');
+                }
+            });
+
+            load();
+        })();
+    </script>
+</body>
+</html>

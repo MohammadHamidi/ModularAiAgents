@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import List
 from datetime import datetime, timezone
 from sqlalchemy import text, bindparam
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -157,6 +158,46 @@ class SessionManager:
             }
             for r in rows
         ], total
+
+    async def list_sessions_for_user(self, user_id: str, limit: int = 50) -> List[dict]:
+        """
+        List all sessions for a user (metadata.safiran_user_id = user_id).
+        Returns list of dicts with session_id, title, created_at, updated_at, message_count, agent_type.
+        """
+        async with self.engine.begin() as conn:
+            rows = (await conn.execute(
+                text("""
+                    SELECT session_id, messages, agent_type, metadata, created_at, updated_at
+                    FROM chat_sessions
+                    WHERE metadata->>'safiran_user_id' = :user_id
+                    ORDER BY updated_at DESC
+                    LIMIT :limit
+                """),
+                {"user_id": user_id, "limit": limit},
+            )).fetchall()
+        result = []
+        for r in rows:
+            sid, messages, agent_type, meta, created_at, updated_at = r
+            meta = meta or {}
+            title = meta.get("session_title")
+            if not title and messages:
+                for m in messages if isinstance(messages, list) else []:
+                    if isinstance(m, dict) and m.get("role") == "user":
+                        msg = (m.get("content") or "").strip()
+                        title = (msg[:50] + "…") if len(msg) > 50 else (msg or "گفتگوی جدید")
+                        break
+            if not title:
+                title = "گفتگوی جدید"
+            msg_count = len(messages) if isinstance(messages, list) else 0
+            result.append({
+                "session_id": str(sid),
+                "title": title,
+                "created_at": created_at.isoformat() if created_at else None,
+                "updated_at": updated_at.isoformat() if updated_at else None,
+                "message_count": msg_count,
+                "agent_type": agent_type or "orchestrator",
+            })
+        return result
 
     async def dispose(self):
         await self.engine.dispose()

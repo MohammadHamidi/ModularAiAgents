@@ -67,15 +67,17 @@ class SpecialistChain:
         agent_config: Any,
         kb_tool: Any,
         konesh_tool: Optional[Any] = None,
+        local_knowledge_tool: Optional[Any] = None,
         safiran_content_tool: Optional[Any] = None,
         safiran_action_tool: Optional[Any] = None,
     ):
         """
         Args:
-            agent_key: guest_faq, action_expert, journey_register, rewards_invite
+            agent_key: guest_faq, action_expert, content_generation_expert, konesh_expert, etc.
             agent_config: Full agent config from YAML
             kb_tool: KnowledgeBaseTool instance
-            konesh_tool: Optional KoneshQueryTool for action_expert
+            konesh_tool: Optional KoneshQueryTool
+            local_knowledge_tool: Optional LocalKnowledgeTool for verses/angareh/konesh type
             safiran_content_tool: Optional Safiran content query tool
             safiran_action_tool: Optional Safiran action query tool
         """
@@ -83,6 +85,7 @@ class SpecialistChain:
         self.agent_config = agent_config
         self.kb_tool = kb_tool
         self.konesh_tool = konesh_tool
+        self.local_knowledge_tool = local_knowledge_tool
         self.safiran_content_tool = safiran_content_tool
         self.safiran_action_tool = safiran_action_tool
         model_config = getattr(agent_config, "model_config", {}) or {}
@@ -129,7 +132,7 @@ class SpecialistChain:
             return ""
 
     async def _retrieve_konesh(self, user_message: str) -> str:
-        """Optionally retrieve konesh context for action_expert."""
+        """Retrieve konesh context for action_expert, content_generation_expert, konesh_expert."""
         if not self.konesh_tool:
             return ""
         try:
@@ -138,6 +141,39 @@ class SpecialistChain:
                 return f"[Konesh / کنش Context]\n{result[:3000]}"
         except Exception as e:
             logger.warning(f"Konesh retrieval failed: {e}")
+        return ""
+
+    async def _retrieve_local_knowledge(
+        self, user_message: str, user_info: Dict[str, Any]
+    ) -> str:
+        """Retrieve verse/angareh/konesh type context when message relates to verse, action, or angareh."""
+        if not self.local_knowledge_tool:
+            return ""
+        try:
+            # Extract konesh name from action_details if available
+            konesh_name: Optional[str] = None
+            action_details_data = (user_info or {}).get("action_details")
+            if action_details_data:
+                action_details = (
+                    action_details_data.get("value")
+                    if isinstance(action_details_data, dict)
+                    else action_details_data
+                )
+                if isinstance(action_details, dict):
+                    data_obj = action_details.get("data") or action_details
+                    konesh_name = (
+                        data_obj.get("title")
+                        or data_obj.get("name")
+                        or data_obj.get("actionTitle")
+                    )
+            result = await self.local_knowledge_tool.execute(
+                query=user_message,
+                konesh_name=konesh_name,
+            )
+            if result and "error" not in result.lower():
+                return f"[Local Knowledge: ۳۰ آیه و انگاره]\n{result[:2500]}"
+        except Exception as e:
+            logger.warning(f"Local knowledge retrieval failed: {e}")
         return ""
 
     def _extract_action_id_from_user_info(self, user_info: Dict[str, Any]) -> Optional[int]:
@@ -201,9 +237,15 @@ class SpecialistChain:
         if not kb_context:
             kb_context = ""
 
-        # Optional konesh for action_expert
+        # Optional local knowledge (verses/angareh/konesh type) for content_generation_expert, konesh_expert
+        if self.agent_key in ("content_generation_expert", "konesh_expert") and self.local_knowledge_tool:
+            local_ctx = await self._retrieve_local_knowledge(user_message, user_info or {})
+            if local_ctx:
+                kb_context = (local_ctx + "\n\n" + kb_context) if kb_context else local_ctx
+
+        # Optional konesh for action_expert, content_generation_expert, konesh_expert
         konesh_context = ""
-        if self.agent_key == "action_expert" and self.konesh_tool:
+        if self.agent_key in ("action_expert", "content_generation_expert", "konesh_expert") and self.konesh_tool:
             konesh_context = await self._retrieve_konesh(user_message)
         if konesh_context:
             kb_context = (kb_context + "\n\n" + konesh_context) if kb_context else konesh_context

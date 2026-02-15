@@ -324,30 +324,70 @@
             resize: none;
             overflow-y: hidden;
         }
+
+        /* Session sidebar */
+        #sessionSidebar {
+            transition: transform 0.25s ease, width 0.25s ease;
+            z-index: 40;
+        }
+        #sessionSidebar.sidebar-hidden {
+            transform: translateX(-100%);
+            width: 0;
+            min-width: 0;
+            overflow: hidden;
+        }
+        /* Hide chat content when sidebar is open */
+        #chatContainer,
+        .chat-input-area {
+            transition: opacity 0.2s ease;
+        }
+        body.sidebar-open #chatContainer,
+        body.sidebar-open .chat-input-area {
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
 
 <body class="bg-white">
-    <div class="w-full h-full">
-        <div class="widget-card h-full">
+    <div class="w-full h-full flex overflow-hidden">
+        <!-- Session sidebar (collapsible) -->
+        <aside id="sessionSidebar" class="sidebar-hidden flex-shrink-0 w-64 sm:w-72 min-w-0 bg-gray-50 border-l border-gray-200 flex flex-col h-full">
+            <div class="p-3 border-b border-gray-200 flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-700">گفتگوهای من</span>
+            </div>
+            <div id="sessionList" class="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">
+                <div id="sessionListItems" class="space-y-1"></div>
+                <div id="sessionListEmpty" class="hidden text-center py-6 text-gray-500 text-sm">هیچ گفتگوی قبلی نیست</div>
+            </div>
+        </aside>
+
+        <!-- Main chat area -->
+        <div class="flex-1 flex flex-col min-w-0 h-full">
+        <div class="widget-card h-full flex flex-col">
             <!-- Header -->
             <div class="flex items-center justify-between px-4 sm:px-5 md:px-6 py-3 sm:py-4 md:py-5 bg-white border-b border-gray-200">
-                <div class="flex items-center gap-2 sm:gap-3">
+                <div class="flex items-center gap-2">
+                    <button id="sidebarToggle" class="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="گفتگوهای من" aria-label="باز کردن منوی گفتگوها">
+                        <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                    </button>
+                </div>
+                <div class="flex items-center gap-2 sm:gap-3 flex-1 justify-end">
                     <div class="back-btn flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
                         <img src="/ui/icon.png" alt="Logo" class="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
                     </div>
                     <div>
                         <h1 class="text-base sm:text-lg md:text-xl font-bold text-gray-800">هوش مصنوعی سفیران آیه ها</h1>
                         <p id="headerSubtitle" class="text-[11px] sm:text-xs text-gray-500">دستیار هوشمند شما</p>
+                    </div>
                 </div>
-            </div>
             </div>
 
             <!-- Chat messages -->
             <div id="chatContainer" class="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 space-y-4"></div>
 
             <!-- Input area -->
-            <div class="bg-white border-t border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4">
+            <div class="chat-input-area bg-white border-t border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4">
                 <div class="flex items-end gap-2 sm:gap-3">
                     <textarea id="messageInput" rows="1"
                         class="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 border border-gray-300 rounded-xl sm:rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-[13px] sm:text-sm resize-none"
@@ -361,7 +401,34 @@
                         </svg>
                     </button>
                 </div>
-                        </div>
+            </div>
+        </div>
+        </div>
+    </div>
+
+    <!-- Feedback Modal (Farsi) -->
+    <div id="feedbackModal" class="fixed inset-0 z-50 hidden" dir="rtl">
+        <div class="absolute inset-0 bg-black/50" id="feedbackModalBackdrop"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">ارسال بازخورد</h3>
+                <div class="space-y-3 mb-4">
+                    <p class="text-sm text-gray-600">دلایل (اختیاری):</p>
+                    <div id="feedbackReasons" class="flex flex-wrap gap-2">
+                        <button type="button" class="feedback-reason-chip px-3 py-1.5 rounded-full border border-gray-300 text-sm hover:bg-gray-50" data-code="incorrect">نادرست یا ناقص</button>
+                        <button type="button" class="feedback-reason-chip px-3 py-1.5 rounded-full border border-gray-300 text-sm hover:bg-gray-50" data-code="not_requested">مطابق درخواست نبود</button>
+                        <button type="button" class="feedback-reason-chip px-3 py-1.5 rounded-full border border-gray-300 text-sm hover:bg-gray-50" data-code="slow_or_buggy">کند یا دارای باگ</button>
+                        <button type="button" class="feedback-reason-chip px-3 py-1.5 rounded-full border border-gray-300 text-sm hover:bg-gray-50" data-code="tone_or_style">لحن یا نگارش نامناسب</button>
+                        <button type="button" class="feedback-reason-chip px-3 py-1.5 rounded-full border border-gray-300 text-sm hover:bg-gray-50" data-code="security_legal">نگرانی امنیتی یا قانونی</button>
+                        <button type="button" class="feedback-reason-chip px-3 py-1.5 rounded-full border border-gray-300 text-sm hover:bg-gray-50" data-code="other">سایر</button>
+                    </div>
+                </div>
+                <textarea id="feedbackComment" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none mb-4" rows="3" placeholder="جزئیات بازخورد (اختیاری)"></textarea>
+                <div class="flex gap-2 justify-end">
+                    <button type="button" id="feedbackCancel" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">انصراف</button>
+                    <button type="button" id="feedbackSubmit" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">ارسال</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -369,6 +436,177 @@
         const chatContainer = document.getElementById('chatContainer');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
+
+        // Feedback feature state
+        let feedbackEnabled = true;
+        const submittedMessageIds = new Set();
+
+        async function fetchFeedbackConfig() {
+            try {
+                const res = await fetch(`${baseUrl}/config`);
+                if (res.ok) {
+                    const data = await res.json();
+                    feedbackEnabled = !!data.feedback_enabled;
+                }
+            } catch (_) { feedbackEnabled = false; }
+        }
+
+        function getLastMessages() {
+            const items = chatContainer.querySelectorAll('.message-enter');
+            const out = [];
+            for (let i = Math.max(0, items.length - 2); i < items.length; i++) {
+                const item = items[i];
+                const isUser = item.classList.contains('flex') && item.classList.contains('justify-start');
+                const contentEl = item.querySelector('.markdown-content, .bg-gradient-to-r');
+                const content = contentEl ? (contentEl.textContent || '').trim() : '';
+                const msgId = item.dataset.messageId || null;
+                if (content) out.push({ role: isUser ? 'user' : 'assistant', content, message_id: msgId });
+            }
+            return out;
+        }
+
+        function createMessageActions(messageId, content) {
+            if (!feedbackEnabled || !messageId) return null;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'flex items-center gap-1 mt-1';
+            const likeBtn = document.createElement('button');
+            likeBtn.type = 'button';
+            likeBtn.className = 'p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-green-600 transition';
+            likeBtn.title = 'پسندیدن';
+            likeBtn.innerHTML = '👍';
+            const dislikeBtn = document.createElement('button');
+            dislikeBtn.type = 'button';
+            dislikeBtn.className = 'p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-red-600 transition';
+            dislikeBtn.title = 'نپسندیدن';
+            dislikeBtn.innerHTML = '👎';
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-blue-600 transition';
+            copyBtn.title = 'کپی';
+            copyBtn.innerHTML = '📋';
+            const setDisabled = (disabled) => {
+                likeBtn.disabled = dislikeBtn.disabled = copyBtn.disabled = disabled;
+            };
+            likeBtn.addEventListener('click', async () => {
+                if (submittedMessageIds.has(messageId)) return;
+                setDisabled(true);
+                try {
+                    await submitLike(messageId);
+                    submittedMessageIds.add(messageId);
+                    likeBtn.classList.add('opacity-60');
+                } finally { setDisabled(false); }
+            });
+            dislikeBtn.addEventListener('click', () => openFeedbackModal(messageId, content));
+            copyBtn.addEventListener('click', () => copyToClipboard(content));
+            wrapper.appendChild(likeBtn);
+            wrapper.appendChild(dislikeBtn);
+            wrapper.appendChild(copyBtn);
+            return wrapper;
+        }
+
+        async function submitLike(messageId) {
+            const payload = {
+                session_id: aiClient.sessionId || null,
+                user_id: aiClient.userData?.userId ?? null,
+                message_id: messageId,
+                feedback_type: 'like',
+                reason_codes: null,
+                comment: null,
+                last_messages: getLastMessages(),
+                timestamp: new Date().toISOString()
+            };
+            await fetch(`${baseUrl}/api/v1/chat/feedback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        async function submitDislike(messageId, reasonCodes, comment) {
+            const payload = {
+                session_id: aiClient.sessionId || null,
+                user_id: aiClient.userData?.userId ?? null,
+                message_id: messageId,
+                feedback_type: 'dislike',
+                reason_codes: reasonCodes && reasonCodes.length ? reasonCodes : null,
+                comment: comment || null,
+                last_messages: getLastMessages(),
+                timestamp: new Date().toISOString()
+            };
+            await fetch(`${baseUrl}/api/v1/chat/feedback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        function copyToClipboard(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(() => {
+                    fallbackCopy(text);
+                });
+            } else {
+                fallbackCopy(text);
+            }
+        }
+        function fallbackCopy(text) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (_) {}
+            document.body.removeChild(ta);
+        }
+
+        let feedbackModalMessageId = null;
+        let feedbackModalContent = null;
+        const feedbackReasons = new Set();
+
+        function openFeedbackModal(messageId, content) {
+            feedbackModalMessageId = messageId;
+            feedbackModalContent = content;
+            feedbackReasons.clear();
+            document.getElementById('feedbackReasons').querySelectorAll('.feedback-reason-chip').forEach(el => {
+                el.classList.remove('bg-blue-100', 'border-blue-500');
+                el.classList.add('border-gray-300');
+            });
+            document.getElementById('feedbackComment').value = '';
+            document.getElementById('feedbackModal').classList.remove('hidden');
+        }
+
+        function closeFeedbackModal() {
+            document.getElementById('feedbackModal').classList.add('hidden');
+            feedbackModalMessageId = null;
+        }
+
+        document.getElementById('feedbackModalBackdrop').addEventListener('click', closeFeedbackModal);
+        document.getElementById('feedbackCancel').addEventListener('click', closeFeedbackModal);
+        document.getElementById('feedbackReasons').addEventListener('click', (e) => {
+            const chip = e.target.closest('.feedback-reason-chip');
+            if (!chip) return;
+            const code = chip.dataset.code;
+            if (feedbackReasons.has(code)) {
+                feedbackReasons.delete(code);
+                chip.classList.remove('bg-blue-100', 'border-blue-500');
+                chip.classList.add('border-gray-300');
+            } else {
+                feedbackReasons.add(code);
+                chip.classList.add('bg-blue-100', 'border-blue-500');
+                chip.classList.remove('border-gray-300');
+            }
+        });
+        document.getElementById('feedbackSubmit').addEventListener('click', async () => {
+            if (!feedbackModalMessageId || submittedMessageIds.has(feedbackModalMessageId)) return;
+            const btn = document.getElementById('feedbackSubmit');
+            btn.disabled = true;
+            try {
+                await submitDislike(feedbackModalMessageId, Array.from(feedbackReasons), document.getElementById('feedbackComment').value.trim() || null);
+                submittedMessageIds.add(feedbackModalMessageId);
+                closeFeedbackModal();
+            } finally { btn.disabled = false; }
+        });
 
         // Markdown parser: use marked if loaded, else simple fallback (handles CDN failures)
         function parseMarkdown(text) {
@@ -466,6 +704,7 @@
                 this.decoder = new TextDecoder();
                 this.buffer = '';
                 this.sessionId = null;
+                this.messageId = null;
             }
 
             async *chunks() {
@@ -490,9 +729,12 @@
                                 if (parsed.session_id && !this.sessionId) {
                                     this.sessionId = parsed.session_id;
                                 }
+                                if (parsed.message_id) {
+                                    this.messageId = parsed.message_id;
+                                }
                                 if (parsed.chunk) {
                                     yield parsed.chunk;
-                                            }
+                                }
                                         } catch (e) {
                                 console.error('JSON parse error:', e);
                                         }
@@ -504,8 +746,9 @@
                         }
 
             async getFullResponse() {
-                        return {
+                return {
                     session_id: this.sessionId,
+                    message_id: this.messageId,
                     output: ''
                 };
             }
@@ -568,6 +811,149 @@
         // Initialize with base URL (agent will be set dynamically)
         const aiClient = new AIClient(baseUrl);
 
+        // Stored init params for "New chat" (Safiranayeha users)
+        let safiranInitParams = { encryptedParam: null, fromPath: null };
+
+        // Session sidebar state
+        let sessionListCached = null;
+        const sidebar = document.getElementById('sessionSidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sessionListItems = document.getElementById('sessionListItems');
+        const sessionListEmpty = document.getElementById('sessionListEmpty');
+
+        function closeSidebar() {
+            if (sidebar) {
+                sidebar.classList.add('sidebar-hidden');
+                document.body.classList.remove('sidebar-open');
+            }
+        }
+        function openSidebar() {
+            if (sidebar) {
+                sidebar.classList.remove('sidebar-hidden');
+                document.body.classList.add('sidebar-open');
+            }
+        }
+        function toggleSidebar() {
+            if (sidebar) {
+                sidebar.classList.toggle('sidebar-hidden');
+                document.body.classList.toggle('sidebar-open');
+            }
+        }
+
+        async function fetchUserSessions() {
+            const sid = aiClient.sessionId;
+            if (!sid) return { sessions: [] };
+            try {
+                const res = await fetch(`${baseUrl}/user/sessions?session_id=${encodeURIComponent(sid)}`);
+                if (!res.ok) return { sessions: [] };
+                return await res.json();
+            } catch (e) {
+                console.warn('Fetch user sessions failed:', e);
+                return { sessions: [] };
+            }
+        }
+
+        function formatRelativeTime(isoStr) {
+            if (!isoStr) return '';
+            const d = new Date(isoStr);
+            const now = new Date();
+            const diffMs = now - d;
+            const diffM = Math.floor(diffMs / 60000);
+            const diffH = Math.floor(diffMs / 3600000);
+            const diffD = Math.floor(diffMs / 86400000);
+            if (diffM < 1) return 'الان';
+            if (diffM < 60) return diffM + ' دقیقه پیش';
+            if (diffH < 24) return diffH + ' ساعت پیش';
+            if (diffD < 7) return diffD + ' روز پیش';
+            return d.toLocaleDateString('fa-IR', { month: 'short', day: 'numeric', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+        }
+
+        function renderSessionList(sessions) {
+            if (!sessionListItems || !sessionListEmpty) return;
+            sessionListItems.innerHTML = '';
+            const list = sessions || [];
+            if (list.length === 0) {
+                sessionListEmpty.classList.remove('hidden');
+                return;
+            }
+            sessionListEmpty.classList.add('hidden');
+            list.forEach((s) => {
+                const isActive = s.session_id === aiClient.sessionId;
+                const btn = document.createElement('button');
+                btn.className = 'session-item-btn w-full text-right px-3 py-2.5 rounded-lg text-[13px] transition-colors truncate ' + (isActive ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-gray-100');
+                btn.title = s.title || 'گفتگوی جدید';
+                btn.dataset.sessionId = s.session_id;
+                btn.dataset.agentType = s.agent_type || 'orchestrator';
+                const titleEl = document.createElement('span');
+                titleEl.className = 'block truncate';
+                titleEl.textContent = s.title || 'گفتگوی جدید';
+                const timeEl = document.createElement('span');
+                timeEl.className = 'block text-[11px] text-gray-500 mt-0.5';
+                timeEl.textContent = formatRelativeTime(s.updated_at);
+                btn.appendChild(titleEl);
+                btn.appendChild(timeEl);
+                btn.addEventListener('click', () => selectSession(s.session_id, s.agent_type));
+                sessionListItems.appendChild(btn);
+            });
+        }
+
+        async function selectSession(sessionId, agentType) {
+            if (!sessionId) return;
+            try {
+                const res = await fetch(`${baseUrl}/session/${encodeURIComponent(sessionId)}/history`);
+                if (!res.ok) throw new Error('Failed to load session');
+                const data = await res.json();
+                aiClient.setSessionId(sessionId);
+                aiClient.setAgentKey(agentType || data.agent_type || 'orchestrator');
+                renderMessagesFromHistory(data.messages || []);
+                closeSidebar();
+                renderSessionList(sessionListCached?.sessions || []);
+            } catch (e) {
+                console.error('Load session failed:', e);
+            }
+        }
+
+        function renderMessagesFromHistory(messages) {
+            chatContainer.innerHTML = '';
+            if (!messages || messages.length === 0) return;
+            const frag = document.createDocumentFragment();
+            messages.forEach((m) => {
+                const role = m.role || 'user';
+                const content = (m.content || '').trim();
+                const messageId = m.message_id || null;
+                if (!content) return;
+                const div = document.createElement('div');
+                div.className = 'message-enter mb-4 ' + (role === 'user' ? 'flex justify-start' : 'flex justify-end');
+                if (messageId) div.dataset.messageId = messageId;
+                if (role === 'user') {
+                    div.innerHTML = `<div class="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-4 sm:px-5 py-2 sm:py-3 rounded-2xl max-w-[85%] sm:max-w-[75%]"><p class="text-[13px] sm:text-sm break-words">${escapeHtml(content)}</p></div>`;
+                } else {
+                    const inner = document.createElement('div');
+                    inner.className = 'flex flex-col items-end';
+                    const bubble = document.createElement('div');
+                    bubble.className = 'markdown-content bg-white px-4 sm:px-5 py-3 sm:py-4 rounded-2xl shadow-sm max-w-[85%] sm:max-w-[75%] text-[13px] sm:text-sm';
+                    bubble.innerHTML = parseMarkdown(content);
+                    inner.appendChild(bubble);
+                    const actions = createMessageActions(messageId, content);
+                    if (actions) inner.appendChild(actions);
+                    div.appendChild(inner);
+                }
+                frag.appendChild(div);
+            });
+            chatContainer.appendChild(frag);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        if (sidebarToggle) sidebarToggle.addEventListener('click', async () => {
+            toggleSidebar();
+            if (!sidebar.classList.contains('sidebar-hidden')) {
+                if (aiClient.sessionId) {
+                    sessionListCached = await fetchUserSessions();
+                }
+                renderSessionList(sessionListCached?.sessions || []);
+            }
+        });
+
         // Apply agent from URL if present (for direct testing without path mapping)
         const urlAgent = getAgentFromURL();
         if (urlAgent) {
@@ -591,6 +977,11 @@
             }
             
             try {
+                // Store init params for "New chat"
+                const urlParams = new URLSearchParams(window.location.search);
+                const fromParam = urlParams.get('from');
+                safiranInitParams = { encryptedParam, fromPath: fromParam ? decodeURIComponent(fromParam) : null };
+
                 // Show loading state
                 chatContainer.innerHTML = `
                     <div class="flex items-center justify-center h-full">
@@ -604,10 +995,6 @@
                 // Disable input during initialization
                 messageInput.disabled = true;
                 sendButton.disabled = true;
-                
-                // Extract 'from' parameter (indicates which page user came from)
-                const urlParams = new URLSearchParams(window.location.search);
-                const fromParam = urlParams.get('from');
                 
                 // Call init endpoint
                 const response = await fetch(`${baseUrl}/chat/init`, {
@@ -700,6 +1087,13 @@
                 // Enable input
                 messageInput.disabled = false;
                 sendButton.disabled = false;
+
+                // Fetch session list for sidebar
+                sessionListCached = await fetchUserSessions();
+                renderSessionList(sessionListCached.sessions);
+                if (sessionListCached.sessions && sessionListCached.sessions.length > 1) {
+                    openSidebar();
+                }
                 
                 console.log('Chat initialized successfully:', {
                     session_id: data.session_id,
@@ -853,7 +1247,7 @@
             chatContainer.scrollTop = chatContainer.scrollHeight;
 
             const messageDiv = document.createElement('div');
-            messageDiv.className = 'flex justify-end mb-4 message-enter';
+            messageDiv.className = 'flex flex-col items-end mb-4 message-enter';
             messageDiv.style.display = 'none';
             const streamingContent = document.createElement('div');
             streamingContent.className = 'markdown-content bg-white px-4 sm:px-5 py-3 sm:py-4 rounded-2xl shadow-sm max-w-[85%] sm:max-w-[75%] text-[13px] sm:text-sm';
@@ -942,6 +1336,12 @@
                     }
                 }
 
+                const msgId = finalResponse?.message_id || null;
+                if (msgId) messageDiv.dataset.messageId = msgId;
+                const contentForFeedback = (streamingContent.textContent || fullText || '').trim();
+                const actions = createMessageActions(msgId, contentForFeedback);
+                if (actions) messageDiv.appendChild(actions);
+
             } catch (error) {
                 console.error('Streaming error:', error);
                 hideTyping();
@@ -978,11 +1378,13 @@
 
         // Initialize chat on page load
         (async () => {
+            await fetchFeedbackConfig();
             // Try to initialize from Safiranayeha parameter
             const initialized = await initializeChatFromSafiranayeha();
             
-            // If no initialization happened, show default welcome
+            // If no initialization happened, show default welcome (guest mode)
             if (!initialized) {
+                sessionListCached = { sessions: [] };
                 renderWelcome();
             }
             

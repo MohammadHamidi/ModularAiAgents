@@ -1,6 +1,6 @@
 import os
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,6 +79,7 @@ FAVICON_PATH = find_static_file("favicon.ico")
 MONITORING_DASHBOARD_PATH = find_static_file("monitoring_dashboard.html")
 LOG_VIEWER_PATH = find_static_file("log_viewer.html")
 USERS_VIEW_PATH = find_static_file("users_view.html")
+FEEDBACK_VIEWER_PATH = find_static_file("feedback_viewer.html")
 
 
 # =============================================================================
@@ -212,6 +213,17 @@ async def serve_log_viewer():
         )
     else:
         raise HTTPException(status_code=404, detail="log_viewer.html not found")
+
+@app.get("/monitoring/feedback", response_class=HTMLResponse, tags=["Monitoring", "UI"])
+async def serve_feedback_viewer():
+    """Serve the Chat Feedback admin page."""
+    if FEEDBACK_VIEWER_PATH.exists():
+        return FileResponse(
+            FEEDBACK_VIEWER_PATH,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"}
+        )
+    raise HTTPException(status_code=404, detail="feedback_viewer.html not found")
 
 @app.get("/health", tags=["Health"], response_model=HealthResponse)
 async def health():
@@ -434,6 +446,41 @@ async def get_session_context(session_id: str):
     except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
 
+@app.get("/session/{session_id}/history", tags=["Sessions"])
+async def get_session_history(session_id: str):
+    """
+    Get session messages and metadata for conversation history.
+    
+    Returns messages, agent_type, and metadata for rendering when
+    user selects a session from the sidebar.
+    """
+    try:
+        response = await http_client.get(f"/session/{session_id}/history")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.get("/user/sessions", tags=["Sessions"])
+async def list_user_sessions(session_id: Optional[str] = None):
+    """
+    List all sessions for the user who owns the given session.
+    
+    Requires session_id from a session created via chat/init.
+    Returns empty list for guests.
+    """
+    try:
+        params = {"session_id": session_id} if session_id else {}
+        response = await http_client.get("/user/sessions", params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
 @app.get("/session/{session_id}/user-data", tags=["Sessions"])
 async def get_session_user_data(session_id: str):
     """
@@ -463,6 +510,113 @@ async def delete_session(session_id: str):
         response = await http_client.delete(f"/session/{session_id}")
         response.raise_for_status()
         return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+# =============================================================================
+# Config API (Forward to chat-service)
+# =============================================================================
+
+@app.get("/config", tags=["Config"])
+async def get_config():
+    """Get feature flags (e.g. feedback_enabled) for Chat UI."""
+    try:
+        response = await http_client.get("/config")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+# =============================================================================
+# Chat Feedback API (Forward to chat-service)
+# =============================================================================
+
+@app.post("/api/v1/chat/feedback", tags=["Feedback"])
+async def submit_feedback(request: Request):
+    """Submit message-level feedback (like/dislike)."""
+    try:
+        body = await request.json()
+        response = await http_client.post("/api/v1/chat/feedback", json=body)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.get("/api/v1/chat/feedback", tags=["Feedback"])
+async def list_feedback(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    feedback_type: Optional[str] = None,
+    reason: Optional[str] = None,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50,
+    sort: str = "desc",
+):
+    """List feedback with filters (admin)."""
+    try:
+        params = {"page": page, "limit": limit, "sort": sort}
+        if from_date:
+            params["from_date"] = from_date
+        if to_date:
+            params["to_date"] = to_date
+        if feedback_type:
+            params["feedback_type"] = feedback_type
+        if reason:
+            params["reason"] = reason
+        if user_id:
+            params["user_id"] = user_id
+        if session_id:
+            params["session_id"] = session_id
+        response = await http_client.get("/api/v1/chat/feedback", params=params)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Chat service unavailable: {str(e)}")
+
+@app.get("/api/v1/chat/feedback/export", tags=["Feedback"])
+async def export_feedback(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    feedback_type: Optional[str] = None,
+    reason: Optional[str] = None,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+):
+    """Export feedback as CSV (admin)."""
+    try:
+        params = {}
+        if from_date:
+            params["from_date"] = from_date
+        if to_date:
+            params["to_date"] = to_date
+        if feedback_type:
+            params["feedback_type"] = feedback_type
+        if reason:
+            params["reason"] = reason
+        if user_id:
+            params["user_id"] = user_id
+        if session_id:
+            params["session_id"] = session_id
+        response = await http_client.get("/api/v1/chat/feedback/export", params=params)
+        response.raise_for_status()
+        async def stream():
+            async for chunk in response.aiter_bytes():
+                yield chunk
+        return StreamingResponse(
+            stream(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=chat_feedback.csv"}
+        )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except httpx.RequestError as e:
