@@ -799,17 +799,9 @@ async def initialize_chat(request: ChatInitRequest):
             agent_key = "guest_faq"
 
         # Step 4: Create new session and link to Safiranayeha user_id (for user management)
+        # Note: We'll add the welcome message to the session history after generating it
         session_id = uuid.uuid4()
         logging.info(f"Created new session: {session_id}")
-        try:
-            await session_manager.upsert_session(
-                session_id,
-                [],
-                agent_key,
-                metadata={"safiran_user_id": str(user_id)},
-            )
-        except Exception as e:
-            logging.warning(f"Failed to persist session mapping for user_id {user_id}: {e}")
 
         # Step 5: Normalize and save user data to context
         normalized_user_data = {}
@@ -859,16 +851,32 @@ async def initialize_chat(request: ChatInitRequest):
                 action_details=action_details if action_details else None,
             )
             logging.info("Called get_welcome_message_and_starters successfully")
-            welcome_message = welcome_data.get("welcome_message", "سلام! چطور می‌تونم کمکت کنم؟")
+            welcome_message = welcome_data.get("welcome_message", "چطور می‌تونم کمکت کنم؟")
             conversation_starters = welcome_data.get("conversation_starters", [])
             subtitle = welcome_data.get("subtitle")
             logging.info(f"Generated welcome message with {len(conversation_starters)} starters for agent {agent_key}, path {entry_path}")
         except Exception as e:
             logging.warning(f"Failed to generate context-aware welcome message: {e}", exc_info=True)
             # Fallback to simple welcome
-            welcome_message = "سلام! چطور می‌تونم کمکت کنم؟"
+            welcome_message = "چطور می‌تونم کمکت کنم؟"
             conversation_starters = []
             subtitle = None
+
+        # Step 6.5: Save welcome message to session history so AI has context for follow-up questions
+        # This is especially important for action pages where the welcome message mentions the specific action
+        initial_messages = [
+            {"role": "assistant", "content": welcome_message}
+        ]
+        try:
+            await session_manager.upsert_session(
+                session_id,
+                initial_messages,
+                agent_key,
+                metadata={"safiran_user_id": str(user_id)},
+            )
+            logging.info(f"Saved welcome message to session history for {session_id}")
+        except Exception as e:
+            logging.warning(f"Failed to persist session with welcome message for user_id {user_id}: {e}")
 
         # Step 7: Return response
         logging.info(f"Step 7: Returning response with session_id {session_id}, agent {agent_key}")
