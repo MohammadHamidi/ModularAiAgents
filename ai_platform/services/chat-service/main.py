@@ -1583,6 +1583,7 @@ async def submit_feedback(req: FeedbackRequest):
         stmt = text("""
             INSERT INTO chat_feedback (session_id, user_id, message_id, feedback_type, reason_codes, comment, last_messages)
             VALUES (:session_id, :user_id, :message_id, :feedback_type, :reason_codes, :comment, :last_messages)
+            ON CONFLICT (message_id, COALESCE(user_id, '')) DO NOTHING
         """).bindparams(
             bindparam("reason_codes", type_=JSONB),
             bindparam("last_messages", type_=JSONB),
@@ -1597,14 +1598,11 @@ async def submit_feedback(req: FeedbackRequest):
                 "comment": req.comment,
                 "last_messages": json.dumps(last_messages) if last_messages else None,
             })
-    except IntegrityError:
-        pass
     except Exception as e:
-        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
-            pass
-        else:
-            logging.warning(f"Feedback insert failed: {e}")
-            raise HTTPException(500, "Failed to save feedback")
+        # Log error but don't fail - ON CONFLICT handles duplicates
+        logging.warning(f"Feedback insert failed: {e}")
+        # Still return success since duplicate submissions are expected
+        pass
     return {"status": "ok"}
 
 

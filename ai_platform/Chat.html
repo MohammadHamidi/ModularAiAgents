@@ -496,7 +496,10 @@
                     likeBtn.classList.add('opacity-60');
                 } finally { setDisabled(false); }
             });
-            dislikeBtn.addEventListener('click', () => openFeedbackModal(messageId, content));
+            dislikeBtn.addEventListener('click', () => {
+                if (submittedMessageIds.has(messageId)) return;
+                openFeedbackModal(messageId, content);
+            });
             copyBtn.addEventListener('click', () => copyToClipboard(content));
             wrapper.appendChild(likeBtn);
             wrapper.appendChild(dislikeBtn);
@@ -533,11 +536,15 @@
                 last_messages: getLastMessages(),
                 timestamp: new Date().toISOString()
             };
-            await fetch(`${baseUrl}/api/v1/chat/feedback`, {
+            const response = await fetch(`${baseUrl}/api/v1/chat/feedback`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+
+            if (!response.ok) {
+                throw new Error(`Failed to submit feedback: ${response.status}`);
+            }
         }
 
         function copyToClipboard(text) {
@@ -600,13 +607,20 @@
         document.getElementById('feedbackSubmit').addEventListener('click', async () => {
             if (!feedbackModalMessageId || submittedMessageIds.has(feedbackModalMessageId)) return;
             const btn = document.getElementById('feedbackSubmit');
+            const originalText = btn.textContent;
             btn.disabled = true;
+            btn.textContent = 'در حال ارسال...';
+
             try {
                 await submitDislike(feedbackModalMessageId, Array.from(feedbackReasons), document.getElementById('feedbackComment').value.trim() || null);
                 submittedMessageIds.add(feedbackModalMessageId);
+                closeFeedbackModal();
+            } catch (error) {
+                console.error('Failed to submit feedback:', error);
+                alert('خطا در ارسال بازخورد. لطفاً دوباره تلاش کنید.');
             } finally {
                 btn.disabled = false;
-                closeFeedbackModal();
+                btn.textContent = originalText;
             }
         });
 
@@ -1093,9 +1107,10 @@
                 // Fetch session list for sidebar
                 sessionListCached = await fetchUserSessions();
                 renderSessionList(sessionListCached.sessions);
-                if (sessionListCached.sessions && sessionListCached.sessions.length > 1) {
-                    openSidebar();
-                }
+                // Auto-expand sidebar disabled - user must manually open it
+                // if (sessionListCached.sessions && sessionListCached.sessions.length > 1) {
+                //     openSidebar();
+                // }
                 
                 console.log('Chat initialized successfully:', {
                     session_id: data.session_id,

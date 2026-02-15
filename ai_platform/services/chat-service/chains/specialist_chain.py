@@ -284,7 +284,15 @@ class SpecialistChain:
         )
 
         # Add KB instruction for chain mode
-        system_prompt += "\n\n[Context from Knowledge Base provided below. Use it fully to answer the user's question completely in your warm, natural tone. Never mention KB or database.]"
+        kb_instruction = "[اطلاعات پایگاه دانش در پیام کاربر آماده شده. از آن برای پاسخ کامل استفاده کن.]"
+
+        # Add konesh context emphasis if konesh was retrieved
+        if konesh_context:
+            action_title = self._get_action_title_from_user_info(user_info or {})
+            if action_title:
+                kb_instruction += f"\n[کنش فعلی: «{action_title}» - همیشه به این کنش اشاره کن وقتی کاربر می‌گوید «این کنش» یا «همین کنش»]"
+
+        system_prompt += "\n\n" + kb_instruction
 
         # Build user prompt
         ctx_block = context_block or ""
