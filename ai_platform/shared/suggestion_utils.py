@@ -115,9 +115,10 @@ def ensure_suggestions_section(
     """
     Ensure the output always includes a suggestions section.
     If missing, generate contextual suggestions based on output and user query.
-    Skips entirely for action_expert (config forbids formal suggestions section).
+    Skips entirely for action_expert, konesh_expert, content_generation_expert (config forbids formal suggestions section).
     """
-    if agent_key == "action_expert":
+    # Skip suggestion header for agents that use natural follow-up questions instead
+    if agent_key in ("action_expert", "konesh_expert", "content_generation_expert"):
         return output
 
     suggestions_patterns = [

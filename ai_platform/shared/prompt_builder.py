@@ -104,6 +104,10 @@ def build_system_prompt(
             normalized_name = field_config.normalized_name
             if normalized_name not in user_info:
                 continue
+            
+            # Skip complex fields that are handled separately below
+            if normalized_name in ("action_details", "user_my_actions", "entry_path"):
+                continue
 
             value_data = user_info[normalized_name]
             value = value_data.get("value") if isinstance(value_data, dict) else value_data
