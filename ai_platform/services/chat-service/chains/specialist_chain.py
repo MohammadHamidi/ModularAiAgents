@@ -286,11 +286,14 @@ class SpecialistChain:
         # Add KB instruction for chain mode
         kb_instruction = "[اطلاعات پایگاه دانش در پیام کاربر آماده شده. از آن برای پاسخ کامل استفاده کن.]"
 
+        # Add instruction to avoid greetings in responses
+        kb_instruction += "\n\n⚠️ **مهم**: در پاسخ‌هایت از سلام کردن یا احوال‌پرسی خودداری کن. مستقیماً وارد موضوع شو و به سوال کاربر پاسخ بده."
+
         # Add konesh context emphasis if konesh was retrieved
         if konesh_context:
             action_title = self._get_action_title_from_user_info(user_info or {})
             if action_title:
-                kb_instruction += f"\n[کنش فعلی: «{action_title}» - همیشه به این کنش اشاره کن وقتی کاربر می‌گوید «این کنش» یا «همین کنش»]"
+                kb_instruction += f"\n\n🎯 **کنش فعلی**: «{action_title}»\n\n⚠️ **مهم**: وقتی کاربر می‌گوید «این کنش»، «همین کنش»، «برای این»، یا هر اشاره‌ای به کنش فعلی، منظورش «{action_title}» است. همیشه این کنش را مد نظر قرار بده و درباره آن توضیح بده."
 
         system_prompt += "\n\n" + kb_instruction
 
