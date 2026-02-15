@@ -604,8 +604,10 @@
             try {
                 await submitDislike(feedbackModalMessageId, Array.from(feedbackReasons), document.getElementById('feedbackComment').value.trim() || null);
                 submittedMessageIds.add(feedbackModalMessageId);
+            } finally {
+                btn.disabled = false;
                 closeFeedbackModal();
-            } finally { btn.disabled = false; }
+            }
         });
 
         // Markdown parser: use marked if loaded, else simple fallback (handles CDN failures)

@@ -131,12 +131,36 @@ class SpecialistChain:
             logger.warning(f"KB retrieval failed: {e}")
             return ""
 
-    async def _retrieve_konesh(self, user_message: str) -> str:
-        """Retrieve konesh context for action_expert, content_generation_expert, konesh_expert."""
+    def _get_action_title_from_user_info(self, user_info: Dict[str, Any]) -> Optional[str]:
+        """Extract action title from action_details for konesh lookup."""
+        action_details_data = (user_info or {}).get("action_details")
+        if not action_details_data:
+            return None
+        action_details = (
+            action_details_data.get("value")
+            if isinstance(action_details_data, dict)
+            else action_details_data
+        )
+        if not isinstance(action_details, dict):
+            return None
+        data_obj = action_details.get("data") or action_details
+        return (
+            data_obj.get("title")
+            or data_obj.get("name")
+            or data_obj.get("actionTitle")
+        )
+
+    async def _retrieve_konesh(self, user_message: str, user_info: Optional[Dict[str, Any]] = None) -> str:
+        """Retrieve konesh context. When action_details has title, use it as query for accurate match."""
         if not self.konesh_tool:
             return ""
         try:
-            result = await self.konesh_tool.execute(query=user_message)
+            # Prefer action title from context when user is on a specific action page
+            query = user_message
+            action_title = self._get_action_title_from_user_info(user_info or {})
+            if action_title and action_title.strip():
+                query = action_title.strip()
+            result = await self.konesh_tool.execute(query=query)
             if result and "error" not in result.lower():
                 return f"[Konesh / کنش Context]\n{result[:3000]}"
         except Exception as e:
@@ -150,22 +174,7 @@ class SpecialistChain:
         if not self.local_knowledge_tool:
             return ""
         try:
-            # Extract konesh name from action_details if available
-            konesh_name: Optional[str] = None
-            action_details_data = (user_info or {}).get("action_details")
-            if action_details_data:
-                action_details = (
-                    action_details_data.get("value")
-                    if isinstance(action_details_data, dict)
-                    else action_details_data
-                )
-                if isinstance(action_details, dict):
-                    data_obj = action_details.get("data") or action_details
-                    konesh_name = (
-                        data_obj.get("title")
-                        or data_obj.get("name")
-                        or data_obj.get("actionTitle")
-                    )
+            konesh_name = self._get_action_title_from_user_info(user_info or {})
             result = await self.local_knowledge_tool.execute(
                 query=user_message,
                 konesh_name=konesh_name,
@@ -246,7 +255,7 @@ class SpecialistChain:
         # Optional konesh for action_expert, content_generation_expert, konesh_expert
         konesh_context = ""
         if self.agent_key in ("action_expert", "content_generation_expert", "konesh_expert") and self.konesh_tool:
-            konesh_context = await self._retrieve_konesh(user_message)
+            konesh_context = await self._retrieve_konesh(user_message, user_info)
         if konesh_context:
             kb_context = (kb_context + "\n\n" + konesh_context) if kb_context else konesh_context
 

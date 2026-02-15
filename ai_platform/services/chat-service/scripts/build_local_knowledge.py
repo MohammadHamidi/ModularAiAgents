@@ -37,6 +37,11 @@ DOCX_CANDIDATES = [
     AI_PLATFORM_DIR / "فهرست کنش‌های ویژه.docx",
 ]
 
+KONESH_CSV_CANDIDATES = [
+    AI_PLATFORM_DIR / "Konesh.csv",
+    CHAT_SERVICE_DIR.parent.parent / "Konesh.csv",
+]
+
 
 def find_csv(csv_path: Path | str | None = None) -> Path | None:
     if csv_path:
@@ -54,6 +59,94 @@ def find_docx() -> Path | None:
         if p.exists():
             return p
     return None
+
+
+def find_konesh_csv(csv_path: Path | str | None = None) -> Path | None:
+    if csv_path:
+        p = Path(csv_path)
+        if p.exists():
+            return p
+    for p in KONESH_CSV_CANDIDATES:
+        if p.exists():
+            return p
+    return None
+
+
+# Map Persian category to English
+_CATEGORY_EN = {
+    "خانه": "home",
+    "مدرسه": "school",
+    "مسجد": "mosque",
+    "فضای مجازی": "virtual",
+    "محیط کار": "work",
+    "عمومی": "general",
+}
+
+
+def build_konesh_from_csv(csv_path: Path) -> list[dict]:
+    """
+    Parse Konesh.csv (tab-delimited, UTF-8).
+    Columns: بستر انجام, عنوان کنش, سطح سختی, کنش‌گر, مخاطب, شرح و الگوی اجرا, هشتگ‌ها, محتواهای مرتبط, دیتای لازم, ویژه
+    """
+    import re
+    konesh_list = []
+    try:
+        with open(csv_path, encoding="utf-8", newline="", errors="replace") as f:
+            reader = csv.reader(f, delimiter="\t")
+            rows = list(reader)
+    except Exception as e:
+        logger.error(f"Failed to read Konesh.csv: {e}")
+        return []
+
+    if len(rows) < 2:
+        logger.warning("Konesh.csv has no data rows")
+        return []
+
+    for idx, row in enumerate(rows[1:], start=1):  # Skip header
+        if len(row) < 6:
+            continue
+        # Cols: 0=بستر, 1=عنوان, 2=سطح سختی, 3=کنشگر, 4=مخاطب, 5=شرح, 6=هشتگ, 7=محتوا, 8=دیتا, 9=ویژه
+        bastar = (row[0] or "").strip()
+        name = (row[1] or "").strip()
+        if not name:
+            continue
+        difficulty = (row[2] or "").strip()
+        actor = (row[3] or "").strip()
+        audience = (row[4] or "").strip()
+        desc_full = (row[5] or "").strip()
+        hashtags = (row[6] or "").strip()
+        content = (row[7] or "").strip() if len(row) > 7 else ""
+        vije = (row[9] or "").strip().lower() if len(row) > 9 else ""
+
+        # Parse keywords from hashtags (#tag -> tag)
+        keywords = []
+        for m in re.finditer(r"#([^\s#]+)", hashtags):
+            kw = m.group(1).replace("_", " ")
+            if kw and kw not in keywords:
+                keywords.append(kw)
+        if not keywords and name:
+            keywords = [w for w in name.split() if len(w) > 1][:5]
+
+        category_en = _CATEGORY_EN.get(bastar, bastar.lower() if bastar else "")
+
+        konesh_list.append({
+            "id": idx,
+            "name": name,
+            "name_en": name,  # CSV has no English name; use Persian for search
+            "category": bastar or "عمومی",
+            "category_en": category_en or "general",
+            "is_primary": vije in ("بله", "yes", "1", "true"),
+            "description": desc_full[:500] + ("..." if len(desc_full) > 500 else ""),
+            "main_platform": bastar or "عمومی",
+            "actor": actor or "سفیر",
+            "target_audience": audience or "عموم",
+            "execution_format": desc_full[:2000],  # Truncate for YAML
+            "content": content[:500] if content else "",
+            "keywords": keywords[:15],
+        })
+
+    logger.info(f"Parsed {len(konesh_list)} konesh from {csv_path}")
+    return konesh_list
 
 
 def build_verses_from_csv(csv_path: Path) -> list[dict]:
@@ -150,9 +243,22 @@ def main() -> int:
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv", help="Path to 30 verses CSV file")
+    parser.add_argument("--konesh-csv", help="Path to Konesh.csv (tab-delimited)")
     args = parser.parse_args()
 
     LOCAL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 0. Build konesh_database.yaml from Konesh.csv (if available)
+    konesh_csv_path = find_konesh_csv(args.konesh_csv)
+    if konesh_csv_path:
+        logger.info(f"Reading konesh from {konesh_csv_path}")
+        konesh_list = build_konesh_from_csv(konesh_csv_path)
+        if konesh_list:
+            konesh_out = CONFIG_DIR / "konesh_database.yaml"
+            konesh_data = {"konesh_list": konesh_list}
+            with open(konesh_out, "w", encoding="utf-8") as f:
+                yaml.dump(konesh_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            logger.info(f"Wrote {len(konesh_list)} konesh to {konesh_out}")
 
     # 1. Build verses_30.yaml from CSV
     csv_path = find_csv(args.csv)
