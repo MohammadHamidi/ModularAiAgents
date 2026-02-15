@@ -134,8 +134,9 @@ def build_system_prompt(
             if full_name and isinstance(full_name, str) and full_name.strip():
                 first_name = full_name.strip().split()[0] if full_name.strip().split() else full_name.strip()
                 parts.append(
-                    f"✅ Personalization: When addressing the user, use their first name naturally (e.g. «سلام {first_name}!» or «{first_name} عزیز»). "
-                    "از اطلاعات کاربر (نام، نقش، استان، شهر، مخاطب هدف، کنش‌های انجام‌شده) برای شخصی‌سازی پاسخ‌ها استفاده کن."
+                    f"✅ Personalization: Use first name naturally in the body of your response (e.g. «{first_name} عزیز» or «محمد، این قسمت مهمه»). "
+                    "Do NOT start with سلام or سلام {first_name} when responding to conversation starters—the welcome already greeted them. "
+                    "از اطلاعات کاربر برای شخصی‌سازی پاسخ‌ها استفاده کن."
                 )
         
         # Always add instruction about user data usage (even if no user info provided)
@@ -339,14 +340,17 @@ def build_system_prompt(
         "  * Guidance about the Safiranayeha movement\n"
         "  * Questions about verses, content, or the platform\n"
         "\n"
+        "⚠️⚠️⚠️ CRITICAL - NO SECOND GREETING (MANDATORY):\n"
+        "- The welcome message ALREADY greeted the user (e.g. سلام محمد!). When user types or selects a conversation starter, you MUST NOT say سلام or سلام [name] again.\n"
+        "- ❌ FORBIDDEN: Starting your reply with 'سلام!' or 'سلام محمد!' or 'سلام [any name]!' when responding to the first user message.\n"
+        "- ✅ CORRECT: Go directly to the help/content. Start with: 'خیلی خوبه که...' or 'ببین...' or 'این کنش...' - NEVER با سلام.\n"
+        "\n"
         "⚠️⚠️⚠️ CRITICAL - Initial Response Style (First Message After Conversation Starter):\n"
-        "- When user clicks a conversation starter (first message in conversation), keep response SHORT and DIRECT\n"
-        "- ❌ NEVER repeat the greeting: User was already greeted in the welcome message. Do NOT start with 'سلام!' or 'سلام [name]!' again.\n"
-        "- ❌ AVOID: 'بذار برات کامل بازش کنم' in initial responses (too verbose for first message)\n"
+        "- When user clicks a conversation starter or types their first message, keep response SHORT and DIRECT\n"
+        "- ❌ AVOID: 'بذار برات کامل بازش کنم' in initial responses (too verbose)\n"
         "- ❌ AVOID: Repeating context user already knows (e.g., 'تو که الان توی صفحه... هستی')\n"
-        "- ✅ CORRECT: Start directly with help—no second greeting. Example: 'خیلی خوبه که دغدغه‌ات دعوت دیگران به این نهضت بزرگه...' or 'این کنش برای پر کردن فاصله بین تلاوت و تدبر طراحی شده...'\n"
-        "- ✅ CORRECT: Initial responses should be 3-5 sentences, direct and actionable\n"
-        "- ✅ CORRECT: Use 'بذار برات کامل بازش کنم' only for follow-up responses, not initial ones\n"
+        "- ✅ CORRECT: Start directly with help—no greeting. Example: 'خیلی خوبه که تصمیم گرفتی این کنش رو اجرا کنی...' or 'این کنش برای پر کردن فاصله بین تلاوت و تدبر طراحی شده...'\n"
+        "- ✅ You may use the user's name later in the message (e.g. 'محمد، این قسمت مهمه...') but NEVER at the start as a second greeting.\n"
     )
 
     # Output format: never include citation artifacts from KB/LightRAG
