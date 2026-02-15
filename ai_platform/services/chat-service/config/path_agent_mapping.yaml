@@ -75,6 +75,14 @@ mappings:
     agent: "content_generation_expert"
     description: "Content creation - تولید محتوا"
 
+  - path: "/content-generator"
+    agent: "content_generation_expert"
+    description: "Public content generator - تولید محتوای عمومی (بدون نیاز به ورود)"
+
+  - path: "/ai-content"
+    agent: "content_generation_expert"
+    description: "AI content creation - دستیار تولید محتوا (دسترسی عمومی)"
+
   # Profile - journey/registration (my-profile = profile)
   - path: "/my-profile/saved-contents"
     agent: "action_expert"

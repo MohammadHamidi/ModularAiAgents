@@ -105,7 +105,7 @@ class ChainExecutor:
             return None
         # action_expert, content_generation_expert, konesh_expert use konesh_tool
         konesh = self.konesh_tool if agent_key in ("action_expert", "content_generation_expert", "konesh_expert") else None
-        local_knowledge = self.local_knowledge_tool if agent_key in ("content_generation_expert", "konesh_expert") else None
+        local_knowledge = self.local_knowledge_tool if agent_key in ("action_expert", "content_generation_expert", "konesh_expert") else None
         safiran_content = self.safiran_content_tool if agent_key == "content_generation_expert" else None
         safiran_action = self.safiran_action_tool if agent_key == "action_expert" else None
         chain = SpecialistChain(

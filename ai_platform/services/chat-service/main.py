@@ -741,7 +741,12 @@ async def initialize_chat(request: ChatInitRequest):
             # Use direct parameters
             user_id = request.user_id
             path = request.path or '/'
-            if not user_id:
+            
+            # Allow missing user_id for public content generator paths
+            public_paths = ['/content-generator', '/ai-content']
+            is_public_path = any(path.startswith(p) for p in public_paths)
+            
+            if not user_id and not is_public_path:
                 raise HTTPException(400, "Either encrypted_param or user_id must be provided")
         
         # Step 1.5: Use 'from_path' if provided (indicates which page user came from)
@@ -751,16 +756,21 @@ async def initialize_chat(request: ChatInitRequest):
         if request.from_path:
             logging.info(f"User came from page: {request.from_path} (iframe path was: {path})")
 
-        # Step 2: Fetch user data from Safiranayeha API
-        logging.info(f"Fetching user data for user_id={user_id}...")
-        try:
-            user_data_raw = await safiranayeha_client.get_user_data(user_id)
-            logging.info(f"Fetched user data with {len(user_data_raw)} fields")
-        except Exception as e:
-            logging.error(f"Failed to fetch user data: {e}")
-            # Continue with empty user data
+        # Step 2: Fetch user data from Safiranayeha API (skip for anonymous users)
+        if user_id:
+            logging.info(f"Fetching user data for user_id={user_id}...")
+            try:
+                user_data_raw = await safiranayeha_client.get_user_data(user_id)
+                logging.info(f"Fetched user data with {len(user_data_raw)} fields")
+            except Exception as e:
+                logging.error(f"Failed to fetch user data: {e}")
+                # Continue with empty user data
+                user_data_raw = {}
+                logging.warning("Continuing with empty user data")
+        else:
+            # Anonymous/public access - no user data
+            logging.info("Anonymous access - no user data fetched")
             user_data_raw = {}
-            logging.warning("Continuing with empty user data")
 
         # Step 2.5: Fetch action details from Safiran API when entry path includes /actions/{id}
         action_details = {}
@@ -801,7 +811,24 @@ async def initialize_chat(request: ChatInitRequest):
         # Step 4: Create new session and link to Safiranayeha user_id (for user management)
         # Note: We'll add the welcome message to the session history after generating it
         session_id = uuid.uuid4()
+<<<<<<< Updated upstream
         logging.info(f"Created new session: {session_id}")
+=======
+        logging.info(f"Created new session: {session_id} (user_id={user_id or 'anonymous'})")
+        try:
+            session_metadata = {
+                "safiran_user_id": str(user_id) if user_id else "anonymous",
+                "is_anonymous": user_id is None
+            }
+            await session_manager.upsert_session(
+                session_id,
+                [],
+                agent_key,
+                metadata=session_metadata,
+            )
+        except Exception as e:
+            logging.warning(f"Failed to persist session mapping for user_id {user_id}: {e}")
+>>>>>>> Stashed changes
 
         # Step 5: Normalize and save user data to context
         normalized_user_data = {}

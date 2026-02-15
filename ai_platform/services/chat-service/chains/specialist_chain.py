@@ -246,8 +246,8 @@ class SpecialistChain:
         if not kb_context:
             kb_context = ""
 
-        # Optional local knowledge (verses/angareh/konesh type) for content_generation_expert, konesh_expert
-        if self.agent_key in ("content_generation_expert", "konesh_expert") and self.local_knowledge_tool:
+        # Optional local knowledge (verses/angareh/konesh type) for action_expert, content_generation_expert, konesh_expert
+        if self.agent_key in ("action_expert", "content_generation_expert", "konesh_expert") and self.local_knowledge_tool:
             local_ctx = await self._retrieve_local_knowledge(user_message, user_info or {})
             if local_ctx:
                 kb_context = (local_ctx + "\n\n" + kb_context) if kb_context else local_ctx
