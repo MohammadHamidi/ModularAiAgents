@@ -703,7 +703,7 @@ user_data_fields:
     validation:
       min: 1
       max: 12
-    enabled: true
+    enabled: false
 
   # Birth year
   - field_name: birth_year
@@ -717,7 +717,7 @@ user_data_fields:
     validation:
       min: 1900
       max: 2025
-    enabled: true
+    enabled: false
 
   # Province
   - field_name: province

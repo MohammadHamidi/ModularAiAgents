@@ -75,14 +75,8 @@ def build_system_prompt(
     if complete_prompt:
         parts.append(complete_prompt)
 
-    # Answer completeness: ensure the model uses KB context and answers fully
-    parts.append(
-        "⚠️ ANSWER COMPLETELY:\n"
-        "- Use all relevant information from the Knowledge Base context provided in the user message.\n"
-        "- Cover every part of the user's question or request; do not give overly brief or partial answers.\n"
-        "- If the KB has detailed content, include the useful details in your response in a clear, structured way.\n"
-        "- Stay clear and avoid filler—but completeness comes first."
-    )
+    # Answer completeness
+    parts.append("⚠️ استفاده از دانش: از اطلاعات پایگاه دانش برای پاسخ کامل و دقیق استفاده کن. پاسخ‌های خیلی کوتاه یا ناقص نده.")
 
     # Add few-shot examples from 49 Q&A document (QA format alignment)
     if agent_key:
@@ -133,24 +127,11 @@ def build_system_prompt(
             full_name = full_name_data.get("value") if isinstance(full_name_data, dict) else full_name_data
             if full_name and isinstance(full_name, str) and full_name.strip():
                 first_name = full_name.strip().split()[0] if full_name.strip().split() else full_name.strip()
-                parts.append(
-                    f"✅ Personalization: Use first name naturally in the body of your response (e.g. «{first_name} عزیز» or «محمد، این قسمت مهمه»). "
-                    "Do NOT start with سلام or سلام {first_name} when responding to conversation starters—the welcome already greeted them. "
-                    "از اطلاعات کاربر برای شخصی‌سازی پاسخ‌ها استفاده کن."
-                )
+                parts.append(f"✅ شخصی‌سازی: از نام «{first_name}» در متن پاسخ استفاده کن (نه در ابتدا به عنوان سلام). از اطلاعات کاربر برای شخصی‌سازی استفاده کن.")
         
-        # Always add instruction about user data usage (even if no user info provided)
+        # User data usage instruction
         parts.append(
-            "⚠️⚠️⚠️ CRITICAL - User Data Usage (ONLY IF PROVIDED):\n"
-            "- User information (if available) is listed above in '📋 User Information' section\n"
-            "- ❌❌❌ NEVER assume or invent user data that is NOT explicitly listed above\n"
-            "- ❌❌❌ NEVER say 'از اونجایی که تو تهران هستی' if city is NOT in the user information section above\n"
-            "- ❌❌❌ NEVER say 'چون تو از [province/city] هستی' if that information is NOT provided\n"
-            "- ❌❌❌ NEVER mention user's location, province, city, score, or level unless it's explicitly shown above\n"
-            "- ✅ ONLY use user data that is explicitly shown in the '📋 User Information' section above\n"
-            "- ✅ If '📋 User Information' section is empty or doesn't include city/province, NEVER mention location\n"
-            "- ✅ If '📋 User Information' section doesn't include a field, NEVER use that field in your response\n"
-            "- ✅ Check the user information section BEFORE using any user data - if it's not there, don't use it"
+            "⚠️ استفاده از اطلاعات کاربر: فقط از اطلاعاتی استفاده کن که در بخش '📋 User Information' بالا وجود دارد. اطلاعاتی که در این بخش نیست را هرگز حدس نزن یا به کار نبر."
         )
 
     # Add recent messages context if enabled
@@ -212,27 +193,11 @@ def build_system_prompt(
             if entry_path == "/home" or entry_path.startswith("/my-profile"):
                 is_registered = True
     
-    # Add registration status context
+    # Registration status
     if is_registered:
-        parts.append(
-            "✅ کاربر ثبت‌نام شده و وارد سیستم است:\n"
-            "- کاربر دارای user_id، phone_number، score، یا در صفحه /home است\n"
-            "- ❌❌❌ هرگز پیشنهاد ثبت‌نام نده - کاربر قبلاً ثبت‌نام کرده\n"
-            "- ❌❌❌ هرگز نگو 'می‌خوای ثبت‌نام کنی؟' یا 'برو تو پلتفرم ثبت‌نام کن'\n"
-            "- ❌❌❌ هرگز نگو 'اول باید ثبت‌نام کنی' - کاربر قبلاً ثبت‌نام کرده\n"
-            "- ✅ درست: کاربر را به استفاده از پلتفرم و انجام کنش‌ها راهنمایی کن\n"
-            "- ✅ درست: پیشنهاد کن که کنش‌ها را ببیند یا محتوا تولید کند\n"
-            "- ✅ درست: بگو 'می‌خوای بری تو پلتفرم و کنش‌ها رو ببینی؟' (بدون ذکر ثبت‌نام)"
-        )
+        parts.append("✅ کاربر ثبت‌نام کرده - پیشنهاد ثبت‌نام نده. به استفاده از پلتفرم راهنماییش کن.")
     else:
-        # User is NOT registered - can suggest signup
-        parts.append(
-            "⚠️ کاربر هنوز ثبت‌نام نکرده است:\n"
-            "- در user_info هیچ user_id، phone_number، یا score وجود ندارد\n"
-            "- ✅ می‌تونی پیشنهاد ثبت‌نام بدی اگر مرتبط است\n"
-            "- ✅ می‌تونی بگی 'می‌خوای تو پلتفرم ثبت‌نام کنی و شروع کنی؟'\n"
-            "- ⚠️ اما فقط وقتی واقعاً مرتبط است - نه در هر پاسخ"
-        )
+        parts.append("⚠️ کاربر ثبت‌نام نکرده - در صورت نیاز می‌توانی پیشنهاد ثبت‌نام بدهی.")
 
     # Action details context from Safiran API (if available)
     if user_info:
@@ -250,18 +215,10 @@ def build_system_prompt(
                         desc_short = desc[:240] + ("..." if len(desc) > 240 else "")
                         block += f"\n- توضیح: {desc_short}"
                     parts.append(block)
-                    
-                    # CRITICAL: Add explicit instruction to use THIS action when user refers to it
+
+                    # Action context instruction
                     parts.append(
-                        "⚠️⚠️⚠️ CRITICAL - Action Context (MANDATORY):\n"
-                        f"- کاربر در حال دیدن کنش «{title}» است\n"
-                        "- وقتی کاربر می‌گوید «برای این کنش»، «این کنش»، «همین کنش»، یا «برای کنش...»\n"
-                        "- ✅ الزامی است که محتوا را برای همین کنش تولید کنی\n"
-                        "- ❌ هرگز موضوع، فراز، یا کنش را عوض نکن - مگر کاربر صریحاً درخواست کند\n"
-                        "- ❌ هرگز فراز یا موضوع جدید انتخاب نکن - از فراز مرتبط با همین کنش استفاده کن\n"
-                        "- ✅ اگر کاربر کنش خاصی را انتخاب کرده، همیشه همان کنش را استفاده کن\n"
-                        "- ✅ اگر در مکالمه قبلی کنشی انتخاب شده، همان را ادامه بده\n"
-                        "- ❌ ممنوع: تغییر خودسرانه موضوع، فراز، یا کنش بدون درخواست صریح کاربر"
+                        f"⚠️ زمینه کنش: کاربر در حال دیدن کنش «{title}» است. وقتی می‌گوید «برای این کنش» یا «همین کنش»، همین کنش را مد نظر داشته باش و موضوع را عوض نکن."
                     )
 
     # User actions summary context from Profile/GetMyActions
@@ -298,89 +255,30 @@ def build_system_prompt(
         routes_ctx = get_website_routes_context()
         if routes_ctx:
             parts.append(routes_ctx)
-            # Add critical instruction to use specific URLs
-            parts.append(
-                "⚠️⚠️⚠️ CRITICAL - Use Specific URLs from Sitemap:\n"
-                "- ❌❌❌ هرگز آدرس عمومی مثل 'https://safiranayeha.ir/' نده\n"
-                "- ❌❌❌ هرگز آدرس حدسی یا ساختگی نده\n"
-                "- ✅✅✅ همیشه از لیست آدرس‌های دقیق بالا استفاده کن\n"
-                "- ✅✅✅ برای لیست کنش‌ها: https://safiranayeha.ir/action-list\n"
-                "- ✅✅✅ برای محتواها: https://safiranayeha.ir/contents\n"
-                "- ✅✅✅ برای پروفایل: https://safiranayeha.ir/my-profile\n"
-                "- ✅✅✅ برای ثبت گزارش: https://safiranayeha.ir/actions/report-form\n"
-                "- ✅✅✅ همیشه آدرس کامل و دقیق بده، نه آدرس عمومی"
-            )
+            # URL usage instruction
+            parts.append("⚠️ استفاده از آدرس‌ها: همیشه از آدرس‌های دقیق لیست بالا استفاده کن. آدرس حدسی یا عمومی نده.")
     except Exception:
         pass
 
-    # Critical context awareness: User is already talking to YOU (the AI assistant)
+    # Core conversation rules
     parts.append(
-        "⚠️⚠️⚠️ CRITICAL - Context Awareness (YOU ARE THE AI ASSISTANT):\n"
-        "- You ARE the AI assistant - the user is already talking to YOU right now\n"
-        "- ❌ NEVER say: 'Let's use AI' or 'موافقی از هوش مصنوعی استفاده کنیم؟' - YOU ARE the AI\n"
-        "- ❌ NEVER suggest: 'Let's choose a verse together' - YOU should directly help and create content\n"
-        "- ✅ CORRECT: Provide direct help, create content directly, don't suggest meta-actions\n"
-        "- ✅ CORRECT: Say 'بذار برات یه جمله کلیدی بسازم...' not 'موافقی یه جمله کلیدی بسازیم؟'\n"
-        "- When user asks for help, YOU provide it directly - don't suggest using 'another AI' or 'the assistant'\n"
-        "\n"
-        "⚠️⚠️⚠️ CRITICAL - Scope Validation (MANDATORY FOR ALL AGENTS):\n"
-        "- ❌❌❌ NEVER answer questions outside your scope:\n"
-        "  * Math problems, physics, chemistry, or any non-Quranic academic questions\n"
-        "  * Medical, legal, technical, or general advice unrelated to Quranic actions\n"
-        "  * General knowledge questions about history, geography, etc. (unless related to the movement)\n"
-        "  * Any question completely unrelated to Quranic actions, content generation, or the Safiranayeha movement\n"
-        "- ✅✅✅ If user asks out-of-scope questions:\n"
-        "  * Politely decline: 'ببخشید دوست خوبم، این سوال خارج از حیطه کاری من هست'\n"
-        "  * Redirect naturally to your actual purpose (Quranic actions, content, guidance)\n"
-        "  * Suggest how you CAN help them\n"
-        "  * ❌ NEVER answer or calculate - even if you know the answer\n"
-        "- ✅✅✅ Only answer questions related to:\n"
-        "  * Quranic actions (کنش‌های قرآنی)\n"
-        "  * Content generation for actions\n"
-        "  * Guidance about the Safiranayeha movement\n"
-        "  * Questions about verses, content, or the platform\n"
-        "\n"
-        "⚠️⚠️⚠️ CRITICAL - NO SECOND GREETING (MANDATORY):\n"
-        "- The welcome message ALREADY greeted the user (e.g. سلام محمد!). When user types or selects a conversation starter, you MUST NOT say سلام or سلام [name] again.\n"
-        "- ❌ FORBIDDEN: Starting your reply with 'سلام!' or 'سلام محمد!' or 'سلام [any name]!' when responding to the first user message.\n"
-        "- ✅ CORRECT: Go directly to the help/content. Start with: 'خیلی خوبه که...' or 'ببین...' or 'این کنش...' - NEVER با سلام.\n"
-        "\n"
-        "⚠️⚠️⚠️ CRITICAL - Initial Response Style (First Message After Conversation Starter):\n"
-        "- When user clicks a conversation starter or types their first message, keep response SHORT and DIRECT\n"
-        "- ❌ AVOID: 'بذار برات کامل بازش کنم' in initial responses (too verbose)\n"
-        "- ❌ AVOID: Repeating context user already knows (e.g., 'تو که الان توی صفحه... هستی')\n"
-        "- ✅ CORRECT: Start directly with help—no greeting. Example: 'خیلی خوبه که تصمیم گرفتی این کنش رو اجرا کنی...' or 'این کنش برای پر کردن فاصله بین تلاوت و تدبر طراحی شده...'\n"
-        "- ✅ You may use the user's name later in the message (e.g. 'محمد، این قسمت مهمه...') but NEVER at the start as a second greeting.\n"
+        "⚠️ قوانین مکالمه:\n"
+        "• تو هوش مصنوعی هستی - کمک مستقیم ارائه کن. نگو «موافقی از هوش مصنوعی استفاده کنیم؟»\n"
+        "• محدوده کاری: فقط درباره کنش‌های قرآنی، تولید محتوا و راهنمایی سفیران پاسخ بده. سوالات ریاضی، پزشکی یا عمومی را رد کن.\n"
+        "• هرگز سلام دوباره نگو - پیام خوشامد قبلاً سلام کرده. مستقیم کمک کن.\n"
+        "• پاسخ‌ها کوتاه و مستقیم باشد. زمینه‌ای که کاربر می‌داند را تکرار نکن.\n"
+        "• از نام کاربر در متن پیام استفاده کن (نه در ابتدای پیام به عنوان سلام دوباره)."
     )
 
-    # Output format: never include citation artifacts from KB/LightRAG
-    parts.append(
-        "⚠️ OUTPUT FORMAT - NEVER include in your response:\n"
-        "- (Reference ID: N) or similar citation markers - these are internal KB artifacts, not for users\n"
-        "- Do not copy or reproduce any (Reference ID: ...) text from the KB context into your answer\n"
-        "- Use the knowledge content naturally but never include such citation artifacts"
-    )
+    # Output format
+    parts.append("⚠️ فرمت خروجی: هرگز علائم مرجع داخلی مثل (Reference ID: N) را در پاسخ نیاور. از محتوای دانش به صورت طبیعی استفاده کن.")
 
-    # CRITICAL: For chain mode, KB context is already provided - don't call tools
+    # Chain mode instructions
     if executor_mode == "langchain_chain":
         parts.append(
-            "⚠️⚠️⚠️ CRITICAL - KB Context Already Provided (Chain Mode):\n"
-            "- Knowledge Base context is ALREADY retrieved and provided in the user message below\n"
-            "- ❌ DO NOT output tool call syntax like 'knowledge_base_query(...)' - this is NOT a tool call\n"
-            "- ❌ DO NOT try to call tools - tools are executed BEFORE your response\n"
-            "- ✅ USE the KB context provided in the user message to construct your answer\n"
-            "- ✅ Generate a natural, warm conversational response using the KB information\n"
-            "- ✅ If KB context is provided, use it. If not provided or empty, answer from general knowledge\n"
-            "- The KB context appears in the user message under '[Knowledge Base Context]' or '[Context from Knowledge Base]'\n"
-            "- Your job is to transform that information into a warm, natural Persian response\n"
-            "\n"
-            "⚠️⚠️⚠️ CRITICAL - Use Conversation History:\n"
-            "- Conversation history is provided BEFORE the current message\n"
-            "- ✅ ALWAYS read and use the conversation history to understand context\n"
-            "- ✅ If user mentioned a specific action/topic in previous messages, continue with THAT action/topic\n"
-            "- ✅ If user said 'برای این کنش' (for THIS action), refer to the action mentioned in conversation history\n"
-            "- ✅ Maintain continuity - don't change topics/actions unless user explicitly requests it\n"
-            "- ❌ DO NOT ignore conversation history - it contains critical context about what the user wants"
+            "⚠️ دستورالعمل‌ها:\n"
+            "• اطلاعات پایگاه دانش از قبل در پیام کاربر آماده شده. از آن استفاده کن و ابزارها را صدا نزن.\n"
+            "• تاریخچه مکالمه را بخوان و از آن استفاده کن. اگر کاربر در پیام قبلی کنش خاصی را ذکر کرد، همان را ادامه بده."
         )
 
     return "\n\n".join(parts)
