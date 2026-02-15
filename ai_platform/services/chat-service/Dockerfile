@@ -37,9 +37,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY shared /app/shared
 COPY QA_EXAMPLES.md /app/QA_EXAMPLES.md
 COPY services/chat-service /app/services/chat-service
+# Konesh.csv for building konesh knowledge base (tab-delimited, UTF-8)
+COPY Konesh.csv /app/Konesh.csv
 
 WORKDIR /app/services/chat-service
 ENV PYTHONPATH=/app
+
+# Build local knowledge (verses, konesh from CSV, konesh_type_mapping)
+RUN python scripts/build_local_knowledge.py || true
 
 EXPOSE 8001
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
